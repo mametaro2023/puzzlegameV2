@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>ブロック積みゲーム（ビジュアル強化版）</title>
+  <style>
+    :root{--bg:#151516;--panel:#222;--accent:#5af;--muted:#444}
+    html,body{height:100%;margin:0;background:var(--bg);color:#fff;font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, sans-serif}
+    canvas{display:block;margin:0 auto;max-width:100%;height:auto;background:linear-gradient(180deg,#121214 0%, #19191b 100%)}
+    /* ダークモードを保ちつつ全体をスタイリッシュに */
+  </style>
+</head>
+<body>
+<canvas id="game" width="1600" height="1000"></canvas>
+<script>
+(() => {
+  // --- Canvasとコンテキスト設定 ---
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  // --- 定数定義 ---
+  const CW = canvas.width, CH = canvas.height;
+  const COLS = 8, ROWS = 15;
+  const INVENTORY_AREA_HEIGHT = 100;
+  const FIELD_AREA_HEIGHT = CH - INVENTORY_AREA_HEIGHT;
+  const BLOCK = Math.min(CW / COLS, FIELD_AREA_HEIGHT / ROWS) | 0;
+  const BASE_OFFX = (CW - BLOCK*COLS)/2 | 0;
+  const BASE_OFFY = 20;
+
+  // カラーパレット（ダークに映える色）
+  const COLORS = ['#000000','#ff6b6b','#4dd0e1','#ffd54f','#8bc34a','#e573ff'];
+
+  // --- 既存設定 ---
+  const LOCK_DELAY = 500;
+  const CLEAR_ANIM_DELAY = 200;
+  const DROP_ANIM_DELAY = 100;
+  const FALL_ANIM_DURATION = 300;
+  const SPAWN_DELAY = 50;
+  const CLEAR_CHECK_DELAY = 200;
+  const SPAWN_X = 4;
+  const SPAWN_Y = -3;
+  const ITEM_TYPES = ['+1','+2','-1','-2','!','P','+S','-S','FR','X'];
+  const MAX_INVENTORY = 8;
+  const P_BLOCK_ID = 99;
+  const BASE_SPEED = 1.0;
+  const MAX_SPEED_BONUS = 3.0;
+  const GAUGE_COMBO_MULTIPLIER = 2;
+
+  // --- ゲーム状態 ---
+  let grid = Array.from({length:ROWS}, ()=>Array(COLS).fill(0));
+  let cur = null; let lockTimer = null; let falling = true; let nextQueue = [];
+  let clearPhase = false; let combo = 0; let gauge = 0;
+  let prevTime = performance.now();
+  let fallingBlocks = [];
+  let inventory = ['X','FR','+1'];
+  let isPBlockActive = false; let isFlipAnimating = false;
+  let lockGrid = Array.from({length:ROWS}, ()=>Array(COLS).fill(false));
+  let droppingXBlocks = [];
+
+  // --- 新しく追加する表現関連の状態 ---
+  let clearAnims = []; // ブロック消去アニメーション一覧
+  let comboDisplay = null; // {start, duration, level}
+  let gaugeTween = null; // {from,to,start,duration}
+  let gaugeDisplay = 0; // 表示用ゲージ（滑らかに変化する）
+  let fieldShake = null; // {start,duration,amp}
+  let dropGridAnim = null; // -1/-2用アニメーション
+  let itemGainAnim = []; // アイテム獲得演出
+  let motionBlurActive = null; // ハードドロップ時のモーションブラー
+  let particles = [];
+  let flipAnimPositions = null; // FR修正用（下で使います）
+
+
+  // --- イージング関数 ---
+  function easeOutBounce(x){
+    const n1=7.5625,d1=2.75; if(x<1/d1) return n1*x*x; else if(x<2/d1) return n1*(x-=1.5/d1)*x+0.75; else if(x<2.5/d1) return n1*(x-=2.25/d1)*x+0.9375; else return n1*(x-=2.625/d1)*x+0.984375;
+  }
+  function easeOutCubic(x){ return 1 - Math.pow(1 - x, 3); }
+  function easeInOutCubic(x){ return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
+
+  // --- ヘルパー: 画面揺れオフセット ---
+  function getShakeOffset(){
+    if(!fieldShake) return {ox:0,oy:0};
+    const now = performance.now(); const t = (now - fieldShake.start) / fieldShake.duration;
+    if(t>=1){ fieldShake=null; return {ox:0,oy:0}; }
+    // 簡単な振動曲線とランダム位相
+    const decay = 1 - easeOutCubic(t);
+    const angle = (now%1000)/1000*Math.PI*2;
+    const ox = Math.sin(angle*12)*fieldShake.amp*decay;
+    const oy = Math.cos(angle*9)*fieldShake.amp*decay*0.6;
+    return {ox,oy};
+  }
+
+  // --- ゲージの滑らか化 ---
+    function startGaugeTween(target){
+    const clamped = Math.max(0, Math.min(100, target));
+    const now = performance.now();
+    gauge = clamped;
+    if(gaugeTween){
+        // 進行中の tween がある場合は現在の表示値を基準にリベースしてスムースに繋ぐ
+        gaugeTween.from = gaugeDisplay;
+        gaugeTween.to = clamped;
+        gaugeTween.start = now;
+        gaugeTween.duration = 600; // 必要なら短くしてもOK
+        return;
+    }
+    gaugeTween = { from: gaugeDisplay, to: clamped, start: now, duration: 600 };
+    }
+
+  // --- モーションブラー開始（ハードドロップ） ---
+  function startMotionBlur(){ motionBlurActive = {start:performance.now(),duration:220}; }
+
+  // --- 消去アニメーション追加 ---
+  function addClearAnims(toClear){
+    const now = performance.now();
+    const arr = [];
+    toClear.forEach(k=>{
+        const [r,c] = k.split('_').map(Number);
+        const val = grid[r][c];                  // → 元の色を保持（赤のデフォルトを使わない）
+        const locked = !!lockGrid[r][c];
+        arr.push({r, c, start: now, duration: 300, value: val, isLocked: locked});
+        // ブロックごとにパーティクルを発生
+        spawnClearParticles(r, c, val);
+    });
+    clearAnims = clearAnims.concat(arr);
+  }
+
+    // 追加：パーティクル生成関数
+    function spawnClearParticles(r, c, val){
+    const now = performance.now();
+    const cx = BASE_OFFX + c * BLOCK + BLOCK/2;
+    const cy = BASE_OFFY + r * BLOCK + BLOCK/2;
+    const baseColor = (val && COLORS[val]) || 'rgba(255,255,255,0.9)';
+    for(let i=0;i<12;i++){
+        const angle = Math.random() * Math.PI * 2;
+        const speed = (Math.random() * 0.8 + 0.6) * (BLOCK * 0.02);
+        particles.push({
+        x: cx, y: cy,
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        size: Math.random() * 4 + 2,
+        start: now,
+        duration: 400 + Math.random() * 300,
+        color: baseColor
+        });
+    }
+}
+
+  // --- ドロップ（-1/-2) のアニメーション開始 ---
+  function startDropGridAnim(numRows){
+    // 保存してから実際のデータ変更はアニメ終了後に行う
+    const now=performance.now();
+    const blocks=[];
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+      const v=grid[r][c]; if(v){ blocks.push({r,c,value:v,isLocked:lockGrid[r][c]}); }
+    }
+    dropGridAnim={start:now,duration:500,numRows,blocks};
+  }
+
+  // --- アイテム獲得演出 ---
+  function spawnItemGainAnim(item){
+    const now=performance.now();
+    // 表示位置は画面上部中央
+    itemGainAnim.push({item,start:now,duration:800,x:CW/2,y:50});
+  }
+
+  // --- 既存関数（修正可能なもの） ---
+  function triggerFallAnimation(){
+    const blocksToAnimate=[];
+    for(let c=0;c<COLS;c++){
+      let fallDist=0;
+      for(let r=ROWS-1;r>=0;r--){
+        if(grid[r][c]===0) fallDist++; else if(fallDist>0){
+          blocksToAnimate.push({fromR:r,toR:r+fallDist,col:c,value:grid[r][c],isLocked:lockGrid[r][c]});
+        }
+      }
+    }
+    if(blocksToAnimate.length===0){ clearPhase=false; combo=0; setTimeout(()=>spawn(),SPAWN_DELAY); return; }
+    for(const b of blocksToAnimate){ grid[b.fromR][b.col]=0; lockGrid[b.fromR][b.col]=false; }
+    const now=performance.now();
+    fallingBlocks = blocksToAnimate.map(b=>({...b,animStartTime:now,easing:'easeOutBounce'}));
+  }
+
+  function spawn(){ isPBlockActive=false; if(nextQueue.length<2) while(nextQueue.length<2) nextQueue.push(generateMino()); cur = nextQueue.shift(); cur.x=SPAWN_X; cur.y=SPAWN_Y; nextQueue.push(generateMino()); combo=0; falling=true; if(collide(cur.x,cur.y)) gameOver(); }
+
+  function collide(x,y){ const baseY=Math.floor(y); for(let i=0;i<3;i++){ const r=baseY+i,c=x; if(r>=ROWS) return true; if(r>=0 && grid[r][c]>0) return true; } return false; }
+
+  function lockPiece(){ const baseY=Math.floor(cur.y); for(let i=0;i<3;i++){ const r=baseY+i,c=cur.x; if(r>=0 && r<ROWS) grid[r][c]=cur.cells[i]; } cur=null; startClear(); }
+
+  function generateMino(){ const types=[1,2,3,4,5]; return {cells:Array.from({length:3}, ()=>types[Math.random()*5|0]),x:SPAWN_X,y:SPAWN_Y}; }
+
+  // --- startClear を改良（消去アニメ追加、コンボ演出、ゲージTween, アイテム取得演出） ---
+  function startClear(){ clearPhase=true; setTimeout(()=>{
+    const toClear = new Set();
+    const pBlocks=[]; const colorsToClear=new Set();
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){ if(grid[r][c]===P_BLOCK_ID){ pBlocks.push({r,c}); if(r+1<ROWS && grid[r+1][c]>0 && grid[r+1][c]!==P_BLOCK_ID) colorsToClear.add(grid[r+1][c]); } }
+    if(pBlocks.length>0){ pBlocks.forEach(p=>toClear.add(p.r+'_'+p.c)); if(colorsToClear.size>0){ for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++) if(colorsToClear.has(grid[r][c])) toClear.add(r+'_'+c); } }
+    const dirs=[[1,0],[0,1],[1,1],[1,-1]];
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){ const v=grid[r][c]; if(!v||v===P_BLOCK_ID||lockGrid[r][c]) continue; dirs.forEach(([dr,dc])=>{ let cnt=1,rr=r,cc=c; const connected=[{r,c}]; while(true){ rr+=dr; cc+=dc; if(rr<0||rr>=ROWS||cc<0||cc>=COLS||grid[rr][cc]!==v||lockGrid[rr][cc]) break; cnt++; connected.push({r:rr,c:cc}); } if(cnt>=3) connected.forEach(pos=>toClear.add(pos.r+'_'+pos.c)); }); }
+    if(toClear.size>0){ // ロック解除
+      const unlocked=new Set(); const checkDirs=[[-1,0],[1,0],[0,-1],[0,1]];
+      toClear.forEach(k=>{ const [r,c]=k.split('_').map(Number); checkDirs.forEach(([dr,dc])=>{ const nr=r+dr,nc=c+dc; if(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&lockGrid[nr][nc]) unlocked.add(nr+'_'+nc); }); });
+      unlocked.forEach(k=>{ const [r,c]=k.split('_').map(Number); lockGrid[r][c]=false; });
+
+      // アイテム獲得・コンボ・ゲージ
+      gainItem();
+      combo++;
+      gauge += toClear.size * combo * GAUGE_COMBO_MULTIPLIER;
+      startGaugeTween(gauge); // アニメーションの目標値として、計算後の実数値を渡す
+      // clearAnims を追加し、実際の grid 削除はアニメ完了時に行う
+      addClearAnims(toClear);
+      // 中央コンボ演出
+      comboDisplay = {start:performance.now(),duration:900,level:combo};
+      // 実際の削除は短い遅延で行い、その後落下アニメ
+      setTimeout(()=>{
+        // gridを消す（実プレイ上は消えた扱い）
+        toClear.forEach(k=>{ const [ar,ac]=k.split('_').map(Number); grid[ar][ac]=0; });
+        setTimeout(()=>triggerFallAnimation(), CLEAR_ANIM_DELAY);
+      }, 160);
+    } else {
+      clearPhase=false; combo=0; setTimeout(()=>spawn(),SPAWN_DELAY);
+    }
+  }, CLEAR_CHECK_DELAY); }
+
+  function gameOver(){ alert('Game Over'); grid = Array.from({length:ROWS}, ()=>Array(COLS).fill(0)); spawn(); }
+
+  // --- アイテム処理 ---
+  function triggerXBlockFall(){ clearPhase=true; droppingXBlocks=[]; const newRow=[]; for(let c=0;c<COLS;c++) newRow.push({col:c,value:Math.floor(Math.random()*5)+1}); for(const block of newRow){ let toR=ROWS-1; for(let r=0;r<ROWS;r++){ if(grid[r][block.col]>0||lockGrid[r][block.col]){ toR=r-1; break; } } if(toR<0) continue; droppingXBlocks.push({fromR:0,toR:toR,col:block.col,value:block.value,animStartTime:performance.now()}); } }
+  function gainItem(){ if(inventory.length<MAX_INVENTORY){ const idx=Math.floor(Math.random()*ITEM_TYPES.length); inventory.push(ITEM_TYPES[idx]); spawnItemGainAnim(ITEM_TYPES[idx]); } }
+
+  // 置換：既存 triggerFlipAnimation を以下に差し替えてください
+    function triggerFlipAnimation(){
+    clearPhase = true;
+    fallingBlocks = [];
+    flipAnimPositions = new Set();
+    const now = performance.now();
+    for(let c=0;c<COLS;c++){
+        const existing=[];
+        for(let r=0;r<ROWS;r++){
+        if(grid[r][c] > 0) existing.push({ r, value: grid[r][c], isLocked: lockGrid[r][c] });
+        }
+        if(existing.length === 0) continue;
+        const reversed = [...existing].reverse();
+        for(let i=0;i<existing.length;i++){
+        const from = existing[i], to = reversed[i];
+        fallingBlocks.push({
+            fromR: from.r,
+            toR: to.r,
+            col: c,
+            value: from.value,
+            isLocked: from.isLocked,
+            animStartTime: now,
+            easing: 'easeOutCubic',
+            isFlip: true // ← FR用フラグ
+        });
+        flipAnimPositions.add(from.r + '_' + c);
+        }
+    }
+    isFlipAnimating = true;
+    // grid はここでは変更しない（アニメが終わるまでオリジナルを保持）
+    }
+
+
+  function useItem(){ if(inventory.length===0||clearPhase||fallingBlocks.length>0) return; const item=inventory.shift(); switch(item){ case '+1': riseGrid(1); break; case '+2': riseGrid(2); break; case '-1': startDropGridAnim(1); break; case '-2': startDropGridAnim(2); break; case '!': grid=Array.from({length:ROWS}, ()=>Array(COLS).fill(0)); break; case 'P': isPBlockActive=true; nextQueue[0]={cells:[P_BLOCK_ID,P_BLOCK_ID,P_BLOCK_ID],x:SPAWN_X,y:SPAWN_Y}; break; case '+S': startGaugeTween(99); break; case '-S': startGaugeTween(0); break; case 'FR': isFlipAnimating=true; triggerFlipAnimation(); break; case 'X': triggerXBlockFall(); break; }
+    // +1/+2の使用で一瞬画面が振動
+    if(item === '+1' || item === '+2') fieldShake = {start:performance.now(),duration:260,amp:8 * (item==='+2'?1.6:1)};
+    // -1/-2は滑らかに下へブロックが消える: handled by startDropGridAnim
+  }
+
+  function riseGrid(numRows){ // 既存の即時シフトを行いつつ、振動演出を発生させる
+    for(let r=0;r<ROWS-numRows;r++){ grid[r]=grid[r+numRows]; lockGrid[r]=lockGrid[r+numRows]; }
+    if(grid[0].some(cell=>cell>0)){ gameOver(); return; }
+    for(let r=ROWS-numRows;r<ROWS;r++){ const newGridRow=[]; const newLockRow=[]; for(let c=0;c<COLS;c++){ newGridRow.push(Math.floor(Math.random()*5)+1); newLockRow.push(Math.random()<0.5); } grid[r]=newGridRow; lockGrid[r]=newLockRow; }
+  }
+
+  function dropGridImmediate(numRows){ // 実際のデータのシフト（アニメ後に呼ぶ）
+    for(let r=ROWS-1;r>=numRows;r--) grid[r]=grid[r-numRows];
+    for(let r=0;r<numRows;r++) grid[r].fill(0);
+  }
+
+  function flipGrid(){ for(let c=0;c<COLS;c++){ const col=grid.map(row=>row[c]); col.reverse(); for(let r=0;r<ROWS;r++) grid[r][c]=col[r]; const lockCol=lockGrid.map(row=>row[c]); lockCol.reverse(); for(let r=0;r<ROWS;r++) lockGrid[r][c]=lockCol[r]; } }
+
+  function update(){ const now=performance.now(); const dt=(now-prevTime)/1000; prevTime=now;
+    // ドロップアニメーション完了チェック
+    if(droppingXBlocks.length>0){ let allLanded=true; for(const block of droppingXBlocks){ const elapsed=now-block.animStartTime; if(elapsed<FALL_ANIM_DURATION) allLanded=false; }
+      if(allLanded){ for(const block of droppingXBlocks){ if(block.toR>=0){ grid[block.toR][block.col]=block.value; lockGrid[block.toR][block.col]=true; } } droppingXBlocks=[]; clearPhase=false; }
+      return; }
+
+    // 落下アニメ
+    if(fallingBlocks.length>0){
+    const remaining=[];
+    for(const block of fallingBlocks){
+        const elapsed = now - block.animStartTime;
+        if(elapsed >= FALL_ANIM_DURATION){
+        // FRアニメ（isFlip）の場合はここで grid に書き込まない（flipGrid が最終確定する）
+        if(!block.isFlip){
+            grid[block.toR][block.col] = block.value;
+            lockGrid[block.toR][block.col] = block.isLocked;
+        }
+        // 完了したブロックは remaining に入れない（つまり除外）
+        } else {
+        remaining.push(block);
+        }
+    }
+    fallingBlocks = remaining;
+    if (fallingBlocks.length === 0) {
+        if (isFlipAnimating) {
+            // FRアニメ完了時の処理
+            flipGrid();
+            fallingBlocks = []; // ★追加：アニメブロックを消去
+            flipAnimPositions = null; // ★追加：元位置の描画除外フラグも解除
+            isFlipAnimating = false;
+            clearPhase = false;
+            return;
+            // ここで処理を完全に終了し、startClearは呼ばない
+        } else {
+            // 通常落下完了時の処理
+            setTimeout(() => startClear(), DROP_ANIM_DELAY);
+        }
+    }
+    return; // fallingBlocksの処理中は他のupdate処理に進まない
+    }
+
+
+
+    // ドロップグリッド（-1/-2）のアニメーション進行
+    if(dropGridAnim){ const t=(now-dropGridAnim.start)/dropGridAnim.duration; if(t>=1){ // 終了
+        dropGridImmediate(dropGridAnim.numRows); dropGridAnim=null; clearPhase=false; return; } }
+
+    // ゲージのTween進行
+    if(gaugeTween){
+      const t = (now - gaugeTween.start) / gaugeTween.duration;
+      const tt = Math.min(1, t);
+
+      // ★修正: 常に from/to から補間
+      gaugeDisplay = gaugeTween.from + (gaugeTween.to - gaugeTween.from) * easeInOutCubic(tt);
+
+      if(tt >= 1){
+          gaugeDisplay = gaugeTween.to; // 表示値を確定
+          gauge = gaugeTween.to;        // 実値も同期
+          gaugeTween = null;
+      }
+    }
+
+    if(!cur || !falling) return;
+    const speed = BASE_SPEED + MAX_SPEED_BONUS * (gaugeDisplay/100);
+    const newY = cur.y + speed * dt;
+    const baseRow = Math.floor(cur.y);
+    if(!collide(cur.x, baseRow + 1)) cur.y = newY; else { cur.y = baseRow; falling=false; lockTimer = setTimeout(()=>lockPiece(), LOCK_DELAY); }
+  }
+
+  function move(dx,dy){ if(!cur||clearPhase) return; const nx=cur.x+dx, ny=cur.y+dy; if(dx){ if(nx<0||nx>=COLS) return; for(let i=0;i<3;i++){ const checkRow1=Math.floor(cur.y+i); const checkRow2=Math.floor(cur.y+i+0.999); if((checkRow1>=0&&grid[checkRow1][nx]>0) || (checkRow2!==checkRow1 && checkRow2>=0 && grid[checkRow2][nx]>0)) return; } const baseRow=Math.floor(cur.y); const isCollidingBelowAfterMove = collide(nx, baseRow+1); const isCollidingBelowBeforeMove = collide(cur.x, baseRow+1); if(isCollidingBelowAfterMove && !isCollidingBelowBeforeMove) return; cur.x=nx; }
+    if(dy){ if(!collide(cur.x, Math.floor(ny))) cur.y=ny; }
+    const wasLocked = !falling; if(wasLocked && !collide(cur.x, Math.floor(cur.y)+1)){ falling=true; clearTimeout(lockTimer); lockTimer=null; } }
+
+  // --- 入力 ---
+  document.addEventListener('keydown', e=>{
+    if(!cur||clearPhase) return;
+    if(e.key==='ArrowLeft') move(-1,0);
+    if(e.key==='ArrowRight') move(1,0);
+    if(e.key==='ArrowDown') cur.cells.unshift(cur.cells.pop());
+    if(e.key===' ') { // Hard drop + motion blur
+      startMotionBlur(); while(!collide(cur.x,cur.y+1)) cur.y++; clearTimeout(lockTimer); lockPiece(); }
+    if(e.key==='ArrowUp') cur.cells.push(cur.cells.shift());
+    if(e.key==='x' || e.key==='X') useItem();
+  });
+
+  function drawLockedEffect(x,y,alpha=1){ const now=performance.now(); const sinWave=Math.sin(now/(5000/(2*Math.PI))); const a = 0.5 + sinWave*0.25; ctx.save(); ctx.lineWidth=4; ctx.strokeStyle=`rgba(255,255,255,${a*alpha})`; ctx.beginPath(); ctx.moveTo(x+5,y+5); ctx.lineTo(x+BLOCK-5,y+BLOCK-5); ctx.moveTo(x+BLOCK-5,y+5); ctx.lineTo(x+5,y+BLOCK-5); ctx.stroke(); ctx.lineWidth=2; ctx.strokeStyle=`rgba(255,0,0,${a*alpha})`; ctx.beginPath(); ctx.moveTo(x+5,y+5); ctx.lineTo(x+BLOCK-5,y+BLOCK-5); ctx.moveTo(x+BLOCK-5,y+5); ctx.lineTo(x+5,y+BLOCK-5); ctx.stroke(); ctx.restore(); }
+
+  // --- 描画 ---
+  function draw(){ ctx.clearRect(0,0,CW,CH);
+    // シャイクオフセット（フィールド用）
+    const shake = getShakeOffset();
+    const OFFX = BASE_OFFX + shake.ox;
+    const OFFY = BASE_OFFY + shake.oy;
+
+    // 背景パネル
+    ctx.save(); ctx.fillStyle='rgba(255,255,255,0.02)'; ctx.fillRect(OFFX-20, OFFY-20, BLOCK*COLS+40, BLOCK*ROWS+40); ctx.restore();
+
+    // グリッド線（少しぼかしてスタイリッシュに）
+    ctx.save(); ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1; for(let i=0;i<=COLS;i++){ const x=OFFX+i*BLOCK; ctx.beginPath(); ctx.moveTo(x,OFFY); ctx.lineTo(x,OFFY+ROWS*BLOCK); ctx.stroke(); } for(let i=0;i<=ROWS;i++){ const y=OFFY+i*BLOCK; ctx.beginPath(); ctx.moveTo(OFFX,y); ctx.lineTo(OFFX+COLS*BLOCK,y); ctx.stroke(); } ctx.restore();
+
+    // ゴースト（落下予測）はモーションブラー中は描かない
+    if(cur && !motionBlurActive){ let ghostY=Math.floor(cur.y); while(!collide(cur.x,ghostY+1)) ghostY++; ctx.globalAlpha=0.16; for(let i=0;i<3;i++){ const c=cur.x; const r=ghostY+i; drawBlock(OFFX + c*BLOCK, OFFY + r*BLOCK, cur.cells[i], {rounded: true, alpha:0.6}); } ctx.globalAlpha=1.0; }
+
+    // 元の固定ブロック描画ループを下記で置き換え（または flipAnimPositions チェックを追加）
+    for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+        const v = grid[r][c];
+        if(v){
+        // flip animation 中の元位置は描画しない（アニメの fallingBlocks が描画する）
+        if(flipAnimPositions && flipAnimPositions.has(r + '_' + c)) continue;
+        const x = OFFX + c*BLOCK, y = OFFY + r*BLOCK;
+        const isLock = lockGrid[r][c];
+        drawBlock(x, y, v, { rounded: true });
+        if(isLock) drawLockedEffect(x, y);
+        }
+    }
+    }
+
+
+    // 消去中アニメーション（拡大縮小＋フェード）
+    if(clearAnims.length > 0){
+        const now = performance.now();
+        const alive = [];
+        for(const a of clearAnims){
+            const t = (now - a.start) / a.duration;
+            if(t >= 1) continue;
+            const p = easeOutCubic(t);
+            const x = OFFX + a.c * BLOCK + BLOCK/2;
+            const y = OFFY + a.r * BLOCK + BLOCK/2;
+            ctx.save();
+            ctx.globalAlpha = 1 - p;
+            ctx.translate(x, y);
+            const scale = 1 + 0.6 * (1 - p);
+            ctx.scale(scale, scale);
+            // ここでは grid を参照せず、addClearAnims で保存した a.value を使用
+            drawBlock(-BLOCK/2, -BLOCK/2, a.value, { rounded: true, alpha: 1 });
+            ctx.restore();
+            alive.push(a);
+        }
+        clearAnims = alive;
+    }
+
+    // 追加：パーティクル描画
+    if(particles.length > 0){
+    const now = performance.now();
+    const alive = [];
+    for(const pt of particles){
+        const tt = (now - pt.start) / pt.duration;
+        if(tt >= 1) continue;
+        const eased = 1 - easeOutCubic(tt);
+        const px = pt.x + pt.vx * (1 - eased) * 30;
+        const py = pt.y + pt.vy * (1 - eased) * 30 + tt * 10;
+        ctx.save();
+        ctx.globalAlpha = 1 - tt;
+        ctx.beginPath();
+        ctx.fillStyle = pt.color;
+        ctx.arc(px, py, pt.size * (1 - tt), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        alive.push(pt);
+    }
+    particles = alive;
+    }
+
+    // 落下アニメ中のブロック
+    if(fallingBlocks.length>0){ const now=performance.now(); for(const block of fallingBlocks){ const elapsed=now-block.animStartTime; const progress=Math.min(elapsed/FALL_ANIM_DURATION,1); const eased = block.easing==='easeOutBounce'? easeOutBounce(progress): easeOutCubic(progress); const startY = OFFY + block.fromR*BLOCK; const endY = OFFY + block.toR*BLOCK; const currentY = startY + (endY - startY)*eased; const x = OFFX + block.col*BLOCK; ctx.save(); if(block.isLocked) ctx.globalAlpha=0.6; drawBlock(x,currentY,block.value,{rounded:true}); ctx.restore(); if(block.isLocked) drawLockedEffect(x,currentY); } }
+
+    // Xアイテムで落下中のブロック
+    if(droppingXBlocks.length>0){ const now=performance.now(); for(const block of droppingXBlocks){ const elapsed = now - block.animStartTime; const progress = Math.min(elapsed/FALL_ANIM_DURATION,1); const eased = easeOutBounce(progress); const startY = OFFY + block.fromR*BLOCK; const endY = OFFY + block.toR*BLOCK; const currentY = startY + (endY - startY)*eased; const x = OFFX + block.col*BLOCK; ctx.save(); ctx.globalAlpha=0.6; drawBlock(x,currentY,block.value,{rounded:true}); ctx.restore(); drawLockedEffect(x,currentY); } }
+
+    // ドロップグリッド（-1/-2）の描画（アニメ中は各ブロックを元位置から移動）
+    if(dropGridAnim){ const now=performance.now(); const t = (now-dropGridAnim.start)/dropGridAnim.duration; const progress = Math.min(1,Math.max(0,t)); for(const b of dropGridAnim.blocks){ const eased = easeOutCubic(progress); const fromY = OFFY + b.r*BLOCK; const toY = OFFY + Math.min(ROWS-1,b.r+dropGridAnim.numRows)*BLOCK; const currentY = fromY + (toY - fromY) * eased; const x = OFFX + b.c*BLOCK; ctx.save(); ctx.globalAlpha = 1 - progress*0.8; drawBlock(x,currentY,b.value,{rounded:true}); ctx.restore(); if(b.isLocked) drawLockedEffect(x,currentY,1-progress); } }
+
+    // 操作中のミノ（モーションブラーがある時は軌跡を描画）
+    if(cur){ if(motionBlurActive){ const now=performance.now(); const mbT = (now-motionBlurActive.start)/motionBlurActive.duration; if(mbT<=1){ // 軌跡を何本か重ねる
+          const trailCount=5; for(let i=0;i<trailCount;i++){ const a=(i+1)/trailCount; const yOff = (i/trailCount)*BLOCK*6; ctx.save(); ctx.globalAlpha = 0.12*a; ctx.filter = `blur(${4*(1-a)}px)`; for(let k=0;k<3;k++){ const x = BASE_OFFX + cur.x*BLOCK; const y = BASE_OFFY + (cur.y + k)*BLOCK + yOff; drawBlock(x,y,cur.cells[k],{rounded:true,alpha:0.7*(1-a)}); } ctx.restore(); } } else { motionBlurActive=null; }
+        // 最終的に通常のミノはモーションブラー非対象として描画
+      }
+      // 今のミノはフィールド揺れと無関係（揺れの影響を受けない）
+      for(let i=0;i<3;i++){ const r=cur.y+i, c=cur.x; const v=cur.cells[i]; const x = BASE_OFFX + c*BLOCK, y = BASE_OFFY + r*BLOCK; if(v===P_BLOCK_ID){ ctx.save(); drawBlock(x,y,null,{pblock:true}); ctx.restore(); } else drawBlock(x,y,v,{rounded:true}); }
+    }
+
+    // NEXT表示
+    const nextX = BASE_OFFX + COLS*BLOCK + BLOCK + 20; ctx.font='20px sans-serif'; ctx.fillStyle='#bbb'; ctx.fillText('NEXT', nextX, 30);
+    for(let n=0;n<2;n++){ const next = nextQueue[n]; if(!next) continue; for(let i=0;i<3;i++){ const x = nextX; const y = 50 + n*(BLOCK*3+20) + i*BLOCK; const v = next.cells[i]; drawBlock(x,y,v,{rounded:true}); ctx.strokeStyle='rgba(0,0,0,0.5)'; ctx.strokeRect(x,y,BLOCK,BLOCK); } }
+
+    // ゲージ描画（滑らかに）
+    const gaugeWidth=20, gaugeHeight=ROWS*BLOCK - 100; const centerY = BASE_OFFY + (ROWS*BLOCK)/2; const gaugeX = BASE_OFFX + COLS*BLOCK + 10; const gaugeY = centerY - gaugeHeight/2; ctx.fillStyle='rgba(255,255,255,0.06)'; ctx.fillRect(gaugeX,gaugeY,gaugeWidth,gaugeHeight); const fillH = gaugeHeight * (gaugeDisplay/100); // gaugeDisplay を使用
+    // グラデーション
+    const ggrad = ctx.createLinearGradient(gaugeX,gaugeY,gaugeX,gaugeY+gaugeHeight); ggrad.addColorStop(0,'#8ad'); ggrad.addColorStop(1,'#f55'); ctx.fillStyle=ggrad; ctx.fillRect(gaugeX, gaugeY + (gaugeHeight - fillH), gaugeWidth, fillH); ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.strokeRect(gaugeX,gaugeY,gaugeWidth,gaugeHeight);
+
+    // インベントリ
+    const invY = BASE_OFFY + ROWS*BLOCK + 10; for(let i=0;i<MAX_INVENTORY;i++){ const invX = BASE_OFFX + i*(BLOCK+5); ctx.fillStyle='rgba(255,255,255,0.03)'; roundRect(ctx,invX,invY,BLOCK,BLOCK,6); ctx.fill(); if(inventory[i]){ ctx.fillStyle='#fff'; ctx.font=`${BLOCK*0.6}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(inventory[i], invX + BLOCK/2, invY + BLOCK/2); } ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.strokeRect(invX,invY,BLOCK,BLOCK); }
+
+    // アイテム獲得演出
+    if(itemGainAnim.length>0){ const now=performance.now(); const alive=[]; for(const anim of itemGainAnim){ const t=(now-anim.start)/anim.duration; if(t>=1) continue; const p = easeOutCubic(t); const x = anim.x + (BASE_OFFX - anim.x)*p; const y = anim.y + (invY - anim.y)*p; ctx.save(); ctx.globalAlpha = 1-p; ctx.font='16px sans-serif'; ctx.fillStyle='#fff'; ctx.fillText('+'+anim.item, x, y); ctx.restore(); alive.push(anim); } itemGainAnim = alive; }
+
+    // コンボ中央演出
+    if(comboDisplay){ const now=performance.now(); const t=(now-comboDisplay.start)/comboDisplay.duration; if(t<1){ const p = easeOutCubic(Math.min(1, t)); ctx.save(); const scale = 1 + 0.6*(1-p); ctx.translate(CW/2, CH/2 - 40); ctx.scale(scale,scale); ctx.font = `${32 + comboDisplay.level*6}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle'; // 豪華さはレベルに応じて派手に
+        ctx.fillStyle = comboDisplay.level>=5 ? '#ffd166' : comboDisplay.level>=3 ? '#90ee90' : '#fff'; ctx.fillText(`${comboDisplay.level} COMBO!`, 0, 0);
+        ctx.restore(); } else comboDisplay=null; }
+
+    // テキスト描画リセット
+    ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  }
+
+  // --- ブロック描画ヘルパー ---
+    function drawBlock(x,y,val,opts={}){
+    const rounded = opts.rounded?6:0;
+    const alpha = opts.alpha!==undefined?opts.alpha:1;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if(opts.pblock){
+        ctx.fillStyle = '#ffffff';
+        roundRect(ctx,x,y,BLOCK,BLOCK,6);
+        ctx.fill();
+        ctx.fillStyle = '#ff6b6b';
+        ctx.font = `${BLOCK*0.7}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('P', x+BLOCK/2, y+BLOCK/2);
+        ctx.restore();
+        return;
+    }
+    const base = (val!==null && val!==undefined)? COLORS[val] : '#555';
+    const grad = ctx.createLinearGradient(x,y,x+BLOCK,y+BLOCK);
+    grad.addColorStop(0, shade(base,0.06));
+    grad.addColorStop(1, shade(base,-0.06));
+    ctx.fillStyle = grad;
+    roundRect(ctx,x,y,BLOCK,BLOCK,rounded);
+    ctx.fill();
+    // 枠線で境界を明確化
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // 内側ハイライト
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle = '#fff';
+    roundRect(ctx,x+4,y+4,BLOCK-8,BLOCK/3,rounded);
+    ctx.fill();
+    ctx.restore();
+    }
+
+
+  // --- ユーティリティ: 角丸矩形 ---
+  function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  // --- 色シェード ---
+  function shade(hex,percent){ // simple shade function
+    const f=parseInt(hex.slice(1),16),t=percent<0?0:255,p=Math.abs(percent); const R=f>>16,G=(f>>8)&0x00FF,B=f&0x0000FF; const newR=Math.round((t-R)*p)+R; const newG=Math.round((t-G)*p)+G; const newB=Math.round((t-B)*p)+B; return `rgb(${newR},${newG},${newB})`; }
+
+  // --- メインループ ---
+  function loop(){ update(); draw(); requestAnimationFrame(loop); }
+
+  // --- 初期化 ---
+  spawn(); loop();
+})();
+</script>
+</body>
+</html>

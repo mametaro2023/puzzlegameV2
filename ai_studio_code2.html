@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>ブロック積みゲーム（完成版）</title>
+  <style>
+    html, body {
+        height: 100%;
+        margin:0;
+        overflow:hidden;
+        background:#222;
+        position: relative;
+    }
+    #game-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    canvas {
+        display:block;
+        background:#333;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+    #controls-overlay {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: flex-end;
+        pointer-events: none;
+    }
+    .controls-container {
+        width: 100%;
+        max-width: 600px;
+        padding: 15px;
+        box-sizing: border-box;
+        display: grid;
+        grid-template-areas:
+            "rotate-up   .        .          hard-drop"
+            "left        right    use-item   use-item"
+            "rotate-down .        .          .";
+        grid-template-columns: 1fr 1fr 1fr 1fr;
+        grid-template-rows: repeat(3, 65px);
+        gap: 10px;
+        pointer-events: auto;
+    }
+    .control-btn {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: rgba(255, 255, 255, 0.2);
+        color: white;
+        border: 2px solid rgba(255, 255, 255, 0.5);
+        border-radius: 15px;
+        font-size: 22px;
+        font-weight: bold;
+        opacity: 0.7;
+        cursor: pointer;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: manipulation;
+    }
+    #btn-left { grid-area: left; }
+    #btn-right { grid-area: right; }
+    #btn-rotate-up { grid-area: rotate-up; }
+    #btn-rotate-down { grid-area: rotate-down; }
+    #btn-hard-drop { grid-area: hard-drop; font-size: 16px; }
+    #btn-use-item { grid-area: use-item; }
+    
+  @media screen and (min-width: 769px) {
+    #controls-overlay {
+      display: none; /* 操作ボタンのコンテナを非表示にする */
+    }
+  }  
+  </style>
+</head>
+<body>
+<div id="game-container">
+    <canvas id="game" width="1600" height="1000"></canvas>
+</div>
+
+<div id="controls-overlay">
+    <div class="controls-container">
+        <div id="btn-left" class="control-btn">◀</div>
+        <div id="btn-right" class="control-btn">▶</div>
+        <div id="btn-rotate-up" class="control-btn">↶</div>
+        <div id="btn-rotate-down" class="control-btn">↷</div>
+        <div id="btn-hard-drop" class="control-btn">DROP</div>
+        <div id="btn-use-item" class="control-btn">X</div>
+    </div>
+</div>
+
+<script>
+(() => {
+  // --- Canvasとコンテキスト設定 ---
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  // --- 定数定義 ---
+  const CW = canvas.width, CH = canvas.height;
+  const COLS = 8, ROWS = 15;
+  const INVENTORY_AREA_HEIGHT = 100;
+  const FIELD_AREA_HEIGHT = CH - INVENTORY_AREA_HEIGHT;
+  const BLOCK = Math.min(CW / COLS, FIELD_AREA_HEIGHT / ROWS) | 0;
+  const OFFX = (CW - BLOCK*COLS)/2 | 0;
+  const OFFY = 0;
+  const COLORS = ['#000','#f00','#0ff','#ff0','#0f0','#f0f'];
+
+  // ゲームプレイ関連
+  const LOCK_DELAY = 500;
+  const CLEAR_ANIM_DELAY = 200;
+  const DROP_ANIM_DELAY = 100;
+  const FALL_ANIM_DURATION = 300;
+  const SPAWN_DELAY = 50;
+  const CLEAR_CHECK_DELAY = 200;
+  const SPAWN_X = 4;
+  const SPAWN_Y = -3;
+  const ITEM_TYPES = ['+1', '+2', '-1', '-2', '!', 'P', '+S', '-S', 'FR', 'X'];
+  const MAX_INVENTORY = 8;
+  const P_BLOCK_ID = 99;
+
+  // 速度 & ゲージ関連
+  const BASE_SPEED = 1.0;
+  const MAX_SPEED_BONUS = 3.0;
+  const GAUGE_COMBO_MULTIPLIER = 2;
+
+  // --- ゲーム状態変数 ---
+  let grid = Array.from({length:ROWS}, ()=>Array(COLS).fill(0));
+  let cur = null;
+  let lockTimer = null;
+  let falling = true;
+  let nextQueue = [];
+  let clearPhase = false;
+  let combo = 0;
+  let gauge = 0;
+  let prevTime = performance.now();
+  let fallingBlocks = [];
+  let inventory = ['X','FR','+1'];
+  let isPBlockActive = false;
+  let isFlipAnimating = false;
+  let lockGrid = Array.from({length:ROWS}, ()=>Array(COLS).fill(false));
+  let droppingXBlocks = [];
+  let particles = [];
+  // ▼▼▼ アニメーション用変数を追加 ▼▼▼
+  let displayGauge = 0;
+  let gaugeAnimation = null;
+  let usedItemAnimation = null;
+  let inventorySlideAnimation = null;
+  // ▲▲▲ ここまで追加 ▲▲▲
+
+  // --- ゲームロジック ---
+  function easeOutBounce(x) {
+      const n1 = 7.5625;
+      const d1 = 2.75;
+      if (x < 1 / d1) { return n1 * x * x; }
+      else if (x < 2 / d1) { return n1 * (x -= 1.5 / d1) * x + 0.75; }
+      else if (x < 2.5 / d1) { return n1 * (x -= 2.25 / d1) * x + 0.9375; }
+      else { return n1 * (x -= 2.625 / d1) * x + 0.984375; }
+  }
+
+  function easeOutCubic(x) {
+      return 1 - Math.pow(1 - x, 3);
+  }
+
+  // ▼▼▼ イージング関数を追加 ▼▼▼
+  function easeInOutCubic(x) {
+    return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  }
+  // ▲▲▲ ここまで追加 ▲▲▲
+
+  // ▼▼▼ ゲージの値をアニメーション付きで設定する関数を追加 ▼▼▼
+  function setGauge(newValue) {
+      const now = performance.now();
+      const targetValue = Math.max(0, Math.min(100, newValue));
+
+      gaugeAnimation = {
+          startTime: now,
+          duration: 500, // 0.5秒でアニメーション
+          startValue: displayGauge, // 現在の表示値からスタート
+          endValue: targetValue,
+      };
+      gauge = targetValue; // 内部的な目標値はすぐに更新
+  }
+  // ▲▲▲ ここまで追加 ▲▲▲
+
+  function createParticles(x, y, colorIndex) {
+    const count = 10;
+    const color = COLORS[colorIndex];
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x: OFFX + x * BLOCK + BLOCK / 2, y: OFFY + y * BLOCK + BLOCK / 2,
+        vx: (Math.random() - 0.5) * 5, vy: (Math.random() - 0.5) * 5,
+        lifetime: Math.random() * 50 + 20, color: color, size: Math.random() * 3 + 2
+      });
+    }
+  }
+
+  function triggerFallAnimation() {
+    const blocksToAnimate = [];
+    for (let c = 0; c < COLS; c++) {
+        let fallDist = 0;
+        for (let r = ROWS - 1; r >= 0; r--) {
+            if (grid[r][c] === 0) { fallDist++; }
+            else if (fallDist > 0) {
+                blocksToAnimate.push({ fromR: r, toR: r + fallDist, col: c, value: grid[r][c], isLocked: lockGrid[r][c] });
+            }
+        }
+    }
+    if (blocksToAnimate.length === 0) {
+        clearPhase = false; combo = 0; setTimeout(() => spawn(), SPAWN_DELAY); return;
+    }
+    for (const block of blocksToAnimate) {
+        grid[block.fromR][block.col] = 0; lockGrid[block.fromR][block.col] = false;
+    }
+    fallingBlocks = blocksToAnimate.map(b => ({ ...b, animStartTime: performance.now(), easing: 'easeOutBounce' }));
+  }
+
+  function spawn() {
+    isPBlockActive = false;
+    if (nextQueue.length < 2) {
+      while (nextQueue.length < 2) nextQueue.push(generateMino());
+    }
+    cur = nextQueue.shift();
+    cur.x = SPAWN_X; cur.y = SPAWN_Y;
+    nextQueue.push(generateMino());
+    combo = 0; falling = true;
+    if (collide(cur.x, cur.y)) gameOver();
+  }
+
+  function collide(x,y) {
+    const baseY = Math.floor(y);
+    for (let i=0;i<3;i++){
+      const r = baseY + i, c = x;
+      if (r>=ROWS) return true;
+      if (r>=0 && grid[r][c]>0) return true;
+    }
+    return false;
+  }
+
+  function lockPiece() {
+    const baseY = Math.floor(cur.y);
+    for (let i = 0; i < 3; i++) {
+      const r = baseY + i, c = cur.x;
+      if (r >= 0 && r < ROWS) grid[r][c] = cur.cells[i];
+    }
+    cur = null;
+    startClear();
+  }
+
+  function generateMino() {
+    const types = [1,2,3,4,5];
+    return { cells: Array.from({length:3}, ()=>types[Math.random()*5|0]), x: SPAWN_X, y: SPAWN_Y };
+  }
+
+  function startClear() {
+    clearPhase = true;
+    setTimeout(() => {
+        const toClear = new Set();
+        const pBlocks = [];
+        const colorsToClear = new Set();
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                if (grid[r][c] === P_BLOCK_ID) {
+                    pBlocks.push({ r, c });
+                    if (r + 1 < ROWS && grid[r + 1][c] > 0 && grid[r + 1][c] !== P_BLOCK_ID) {
+                        colorsToClear.add(grid[r + 1][c]);
+                    }
+                }
+            }
+        }
+        if (pBlocks.length > 0) {
+            pBlocks.forEach(p => toClear.add(p.r + '_' + p.c));
+            if (colorsToClear.size > 0) {
+                for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+                    if (colorsToClear.has(grid[r][c])) toClear.add(r + '_' + c);
+                }
+            }
+        }
+        const dirs = [[1, 0], [0, 1], [1, 1], [1, -1]];
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                const v = grid[r][c];
+                if (!v || v === P_BLOCK_ID || lockGrid[r][c]) continue;
+                dirs.forEach(([dr, dc]) => {
+                    let cnt = 1, rr = r, cc = c; const connected = [{ r, c }];
+                    while (true) {
+                        rr += dr; cc += dc;
+                        if (rr < 0 || rr >= ROWS || cc < 0 || cc >= COLS || grid[rr][cc] !== v || lockGrid[rr][cc]) break;
+                        cnt++; connected.push({ r: rr, c: cc });
+                    }
+                    if (cnt >= 3) connected.forEach(pos => toClear.add(pos.r + '_' + pos.c));
+                });
+            }
+        }
+        if (toClear.size > 0) {
+            const unlockedPositions = new Set();
+            const checkDirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            toClear.forEach(key => {
+                const [r, c] = key.split('_').map(Number);
+                checkDirs.forEach(([dr, dc]) => {
+                    const nr = r + dr, nc = c + dc;
+                    if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && lockGrid[nr][nc]) {
+                        unlockedPositions.add(nr + '_' + nc);
+                    }
+                });
+            });
+            unlockedPositions.forEach(key => {
+                const [r, c] = key.split('_').map(Number); lockGrid[r][c] = false;
+            });
+        }
+        if (toClear.size > 0) {
+            gainItem(); combo++;
+            // ▼▼▼ ゲージ更新処理を変更 ▼▼▼
+            let newTarget = gauge + toClear.size * combo * GAUGE_COMBO_MULTIPLIER;
+            if (newTarget >= 100) {
+                setGauge(0); // 100を超えたら次の目標は0
+            } else {
+                setGauge(newTarget);
+            }
+            // ▲▲▲ ここまで変更 ▲▲▲
+            toClear.forEach(k => {
+                const [ar, ac] = k.split('_').map(Number);
+                const colorIndex = grid[ar][ac];
+                if (colorIndex > 0 && colorIndex !== P_BLOCK_ID) createParticles(ac, ar, colorIndex);
+                grid[ar][ac] = 0;
+            });
+            setTimeout(() => triggerFallAnimation(), CLEAR_ANIM_DELAY);
+        } else {
+            clearPhase = false; combo = 0; setTimeout(() => spawn(), SPAWN_DELAY);
+        }
+    }, CLEAR_CHECK_DELAY);
+  }
+
+  function gameOver() {
+    alert('Game Over');
+    grid = Array.from({length:ROWS}, ()=>Array(COLS).fill(0));
+    lockGrid = Array.from({length:ROWS}, ()=>Array(COLS).fill(false));
+    spawn();
+  }
+
+  function triggerXBlockFall() {
+    clearPhase = true; droppingXBlocks = []; const newRow = [];
+    for (let c = 0; c < COLS; c++) newRow.push({ col: c, value: Math.floor(Math.random() * 5) + 1 });
+    for (const block of newRow) {
+        let toR = ROWS - 1;
+        for (let r = 0; r < ROWS; r++) { if (grid[r][block.col] > 0 || lockGrid[r][block.col]) { toR = r - 1; break; }}
+        if (toR < 0) continue;
+        droppingXBlocks.push({ fromR: 0, toR: toR, col: block.col, value: block.value, animStartTime: performance.now() });
+    }
+  }
+
+  function gainItem() {
+    if (inventory.length < MAX_INVENTORY) {
+      inventory.push(ITEM_TYPES[Math.floor(Math.random() * ITEM_TYPES.length)]);
+    }
+  }
+
+  function triggerFlipAnimation() {
+    clearPhase = true; fallingBlocks = []; const now = performance.now();
+    for (let c = 0; c < COLS; c++) {
+        const existingBlocks = [];
+        for (let r = 0; r < ROWS; r++) {
+            if (grid[r][c] > 0) existingBlocks.push({ r: r, value: grid[r][c], isLocked: lockGrid[r][c] });
+        }
+        if (existingBlocks.length === 0) continue;
+        const reversedBlocks = [...existingBlocks].reverse();
+        for (let i = 0; i < existingBlocks.length; i++) {
+            const fromBlock = existingBlocks[i]; const toBlock = reversedBlocks[i];
+            fallingBlocks.push({ fromR: fromBlock.r, toR: toBlock.r, col: c, value: fromBlock.value, isLocked: fromBlock.isLocked, animStartTime: now, easing: 'easeOutCubic' });
+        }
+    }
+    grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    lockGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+  }
+
+  // ▼▼▼ useItem関数をアニメーション対応に修正 ▼▼▼
+  function useItem() {
+    if (inventory.length === 0 || clearPhase || fallingBlocks.length > 0 || usedItemAnimation || inventorySlideAnimation) return;
+
+    const item = inventory[0]; // shiftする前にアイテム情報を取得
+    const now = performance.now();
+
+    // アニメーションを開始
+    usedItemAnimation = { item: item, startTime: now, duration: 300 };
+    inventorySlideAnimation = { startTime: now, duration: 500 };
+
+    inventory.shift(); // 配列からは即座に削除
+
+    // アイテム効果の実行
+    switch (item) {
+      case '+1': riseGrid(1); break;
+      case '+2': riseGrid(2); break;
+      case '-1': dropGrid(1); break;
+      case '-2': dropGrid(2); break;
+      case '!':
+        grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+        lockGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+        break;
+      case 'P':
+        isPBlockActive = true;
+        nextQueue[0] = { cells: [P_BLOCK_ID, P_BLOCK_ID, P_BLOCK_ID], x: SPAWN_X, y: SPAWN_Y };
+        break;
+      case '+S': setGauge(99); break;
+      case '-S': setGauge(0); break;
+      case 'FR': isFlipAnimating = true; triggerFlipAnimation(); break;
+      case 'X': triggerXBlockFall(); break;
+    }
+  }
+  // ▲▲▲ ここまで修正 ▲▲▲
+
+  function riseGrid(numRows) {
+    for (let r = 0; r < ROWS - numRows; r++) {
+      grid[r] = grid[r + numRows]; lockGrid[r] = lockGrid[r + numRows];
+    }
+    if (grid[0].some(cell => cell > 0)) { gameOver(); return; }
+    for (let r = ROWS - numRows; r < ROWS; r++) {
+      const newGridRow = [], newLockRow = [];
+      for (let c = 0; c < COLS; c++) {
+          newGridRow.push(Math.floor(Math.random() * 5) + 1);
+          newLockRow.push(Math.random() < 0.5);
+      }
+      grid[r] = newGridRow; lockGrid[r] = newLockRow;
+    }
+  }
+
+  function dropGrid(numRows) {
+    for (let r = ROWS - 1; r >= numRows; r--) grid[r] = grid[r - numRows];
+    for (let r = 0; r < numRows; r++) grid[r].fill(0);
+  }
+
+  function update() {
+    const now = performance.now();
+    const dt = (now - prevTime) / 1000;
+    prevTime = now;
+
+    // ▼▼▼ 各種アニメーションの更新処理 ▼▼▼
+    if (gaugeAnimation) {
+        const elapsedTime = now - gaugeAnimation.startTime;
+        const progress = Math.min(elapsedTime / gaugeAnimation.duration, 1.0);
+        displayGauge = gaugeAnimation.startValue + (gaugeAnimation.endValue - gaugeAnimation.startValue) * easeInOutCubic(progress);
+        if (progress >= 1.0) gaugeAnimation = null;
+    }
+    if (usedItemAnimation && now - usedItemAnimation.startTime > usedItemAnimation.duration) {
+        usedItemAnimation = null;
+    }
+    if (inventorySlideAnimation && now - inventorySlideAnimation.startTime > inventorySlideAnimation.duration) {
+        inventorySlideAnimation = null;
+    }
+    // ▲▲▲ ここまで追加 ▲▲▲
+
+    if (droppingXBlocks.length > 0) {
+        let allLanded = true;
+        droppingXBlocks.forEach(b => { if (now - b.animStartTime < FALL_ANIM_DURATION) allLanded = false; });
+        if (allLanded) {
+            droppingXBlocks.forEach(b => { if (b.toR >= 0) { grid[b.toR][b.col] = b.value; lockGrid[b.toR][b.col] = true; }});
+            droppingXBlocks = []; clearPhase = false;
+        }
+        return;
+    }
+
+    if (fallingBlocks.length > 0) {
+        const remainingBlocks = [];
+        fallingBlocks.forEach(b => {
+            if (now - b.animStartTime >= FALL_ANIM_DURATION) {
+                grid[b.toR][b.col] = b.value; lockGrid[b.toR][b.col] = b.isLocked; 
+            } else { remainingBlocks.push(b); }
+        });
+        fallingBlocks = remainingBlocks;
+        if (fallingBlocks.length === 0) {
+            if (isFlipAnimating) { isFlipAnimating = false; clearPhase = false; }
+            else { setTimeout(() => startClear(), DROP_ANIM_DELAY); }
+        }
+        return;
+    }
+
+    if (cur && falling) {
+        const speed = BASE_SPEED + MAX_SPEED_BONUS * (gauge / 100);
+        const newY = cur.y + speed * dt;
+        const baseRow = Math.floor(cur.y);
+        if (!collide(cur.x, baseRow + 1)) cur.y = newY;
+        else { cur.y = baseRow; falling = false; lockTimer = setTimeout(() => lockPiece(), LOCK_DELAY); }
+    }
+    
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i]; p.x += p.vx; p.y += p.vy; p.vy += 0.1; p.lifetime--;
+        if (p.lifetime <= 0) particles.splice(i, 1);
+    }
+  }
+
+  function move(dx, dy){
+    if (!cur || clearPhase) return;
+    const nx = cur.x + dx;
+    if (dx) {
+      if (nx < 0 || nx >= COLS) return;
+      for (let i = 0; i < 3; i++) {
+        const r1 = Math.floor(cur.y + i), r2 = Math.floor(cur.y + i + 0.999);
+        if ((r1 >= 0 && grid[r1][nx] > 0) || (r2 !== r1 && r2 >= 0 && grid[r2][nx] > 0)) return;
+      }
+      const baseRow = Math.floor(cur.y);
+      if (collide(nx, baseRow + 1) && !collide(cur.x, baseRow + 1)) return;
+      cur.x = nx;
+    }
+    if (dy) { if (!collide(cur.x, Math.floor(cur.y + dy))) cur.y += dy; }
+    if (!falling && !collide(cur.x, Math.floor(cur.y) + 1)) {
+      falling = true; clearTimeout(lockTimer); lockTimer = null;
+    }
+  }
+
+  document.addEventListener('keydown', e=>{
+    if(!cur||clearPhase) return;
+    if(e.key==='ArrowLeft') move(-1,0);
+    if(e.key==='ArrowRight') move(1,0);
+    if(e.key==='ArrowDown') cur.cells.unshift(cur.cells.pop());
+    if(e.key==='ArrowUp') cur.cells.push(cur.cells.shift());
+    if(e.key===' ') { while(!collide(cur.x,cur.y+1)) cur.y++; clearTimeout(lockTimer); lockPiece(); }
+    if(e.key==='x' || e.key==='X') useItem();
+  });
+
+  const handleTouchEvent = (e, callback) => { e.preventDefault(); callback(); };
+  document.getElementById('btn-left').addEventListener('touchstart', (e) => handleTouchEvent(e, () => move(-1, 0)), { passive: false });
+  document.getElementById('btn-right').addEventListener('touchstart', (e) => handleTouchEvent(e, () => move(1, 0)), { passive: false });
+  document.getElementById('btn-rotate-up').addEventListener('touchstart', (e) => handleTouchEvent(e, () => { if(cur) cur.cells.push(cur.cells.shift()); }), { passive: false });
+  document.getElementById('btn-rotate-down').addEventListener('touchstart', (e) => handleTouchEvent(e, () => { if(cur) cur.cells.unshift(cur.cells.pop()); }), { passive: false });
+  document.getElementById('btn-use-item').addEventListener('touchstart', (e) => handleTouchEvent(e, useItem), { passive: false });
+  document.getElementById('btn-hard-drop').addEventListener('touchstart', (e) => {
+      handleTouchEvent(e, () => {
+          if(!cur||clearPhase) return;
+          while(!collide(cur.x,cur.y+1)) cur.y++; clearTimeout(lockTimer); lockPiece();
+      });
+  }, { passive: false });
+
+  function drawLockedEffect(x, y) {
+    const now = performance.now();
+    const alpha = 0.5 + Math.sin(now / 500) * 0.25;
+    ctx.save();
+    ctx.lineWidth = 4; ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+    ctx.beginPath(); ctx.moveTo(x + 5, y + 5); ctx.lineTo(x + BLOCK - 5, y + BLOCK - 5);
+    ctx.moveTo(x + BLOCK - 5, y + 5); ctx.lineTo(x + 5, y + BLOCK - 5); ctx.stroke();
+    ctx.lineWidth = 2; ctx.strokeStyle = `rgba(255, 0, 0, ${alpha})`;
+    ctx.beginPath(); ctx.moveTo(x + 5, y + 5); ctx.lineTo(x + BLOCK - 5, y + BLOCK - 5);
+    ctx.moveTo(x + BLOCK - 5, y + 5); ctx.lineTo(x + 5, y + BLOCK - 5); ctx.stroke();
+    ctx.restore();
+  }
+
+  function draw() {
+    const now = performance.now();
+    ctx.clearRect(0,0,CW,CH);
+    ctx.strokeStyle='#555';
+    for(let i=0;i<=COLS;i++){ const x=OFFX+i*BLOCK; ctx.beginPath(); ctx.moveTo(x,OFFY); ctx.lineTo(x,OFFY+ROWS*BLOCK); ctx.stroke(); }
+    for(let i=0;i<=ROWS;i++){ const y=OFFY+i*BLOCK; ctx.beginPath(); ctx.moveTo(OFFX,y); ctx.lineTo(OFFX+COLS*BLOCK,y); ctx.stroke(); }
+
+    if (cur) {
+      let ghostY = Math.floor(cur.y);
+      while (!collide(cur.x, ghostY + 1)) ghostY++;
+      ctx.globalAlpha = 0.3;
+      for (let i = 0; i < 3; i++) {
+        ctx.fillStyle = COLORS[cur.cells[i]];
+        ctx.fillRect(OFFX + cur.x * BLOCK, OFFY + (ghostY + i) * BLOCK, BLOCK, BLOCK);
+      }
+      ctx.globalAlpha = 1.0;
+    }
+
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+        const v=grid[r][c];
+        if(v){
+            ctx.save();
+            if (lockGrid[r][c]) { ctx.globalAlpha = 0.5; }
+            if (v === P_BLOCK_ID) {
+                ctx.fillStyle = '#fff'; ctx.fillRect(OFFX+c*BLOCK, OFFY+r*BLOCK, BLOCK, BLOCK);
+                ctx.fillStyle = '#f00'; ctx.font = `${BLOCK*0.8}px sans-serif`;
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('P', OFFX+c*BLOCK + BLOCK/2, OFFY+r*BLOCK + BLOCK/2);
+            } else {
+                ctx.fillStyle = COLORS[v]; ctx.fillRect(OFFX+c*BLOCK, OFFY+r*BLOCK, BLOCK, BLOCK);
+            }
+            ctx.restore();
+            if (lockGrid[r][c]) { drawLockedEffect(OFFX + c * BLOCK, OFFY + r * BLOCK); }
+        }
+    }
+
+    if (fallingBlocks.length > 0) {
+        fallingBlocks.forEach(b => {
+            const progress = Math.min((now - b.animStartTime) / FALL_ANIM_DURATION, 1.0);
+            const eased = b.easing === 'easeOutBounce' ? easeOutBounce(progress) : easeOutCubic(progress);
+            const y = (OFFY + b.fromR * BLOCK) + ((OFFY + b.toR * BLOCK) - (OFFY + b.fromR * BLOCK)) * eased;
+            const x = OFFX + b.col * BLOCK;
+            ctx.save();
+            if (b.isLocked) { ctx.globalAlpha = 0.5; }
+            ctx.fillStyle = COLORS[b.value]; ctx.fillRect(x, y, BLOCK, BLOCK);
+            ctx.restore();
+            if (b.isLocked) { drawLockedEffect(x, y); }
+        });
+    }
+
+    if (droppingXBlocks.length > 0) {
+        droppingXBlocks.forEach(b => {
+            const progress = Math.min((now - b.animStartTime) / FALL_ANIM_DURATION, 1.0);
+            const y = (OFFY + b.fromR * BLOCK) + ((OFFY + b.toR * BLOCK) - (OFFY + b.fromR * BLOCK)) * easeOutBounce(progress);
+            const x = OFFX + b.col * BLOCK;
+            ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = COLORS[b.value];
+            ctx.fillRect(x, y, BLOCK, BLOCK); ctx.restore();
+            drawLockedEffect(x, y);
+        });
+    }
+
+    if(cur){
+      for(let i=0;i<3;i++){
+        const r=cur.y+i, c=cur.x, v = cur.cells[i];
+        if (v === P_BLOCK_ID) {
+            ctx.fillStyle = '#fff'; ctx.fillRect(OFFX+c*BLOCK, OFFY+r*BLOCK, BLOCK, BLOCK);
+            ctx.fillStyle = '#f00'; ctx.font = `${BLOCK*0.8}px sans-serif`;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('P', OFFX+c*BLOCK + BLOCK/2, OFFY+r*BLOCK + BLOCK/2);
+        } else {
+            ctx.fillStyle=COLORS[v]; ctx.fillRect(OFFX+c*BLOCK, OFFY+r*BLOCK, BLOCK, BLOCK);
+        }
+      }
+    }
+
+    particles.forEach(p => {
+        ctx.save(); ctx.globalAlpha = p.lifetime / 50; ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.size, p.size); ctx.restore();
+    });
+
+    ctx.font = '20px sans-serif'; ctx.fillStyle = '#fff';
+    const nextX = OFFX + COLS*BLOCK + BLOCK + 20;
+    ctx.fillText('NEXT', nextX, 30);
+    for (let n = 0; n < 2; n++) {
+      const next = nextQueue[n]; if (!next) continue;
+      for (let i = 0; i < 3; i++) {
+        const x = nextX, y = 50 + n * (BLOCK * 3 + 20) + i * BLOCK, v = next.cells[i];
+        if (v === P_BLOCK_ID) {
+            ctx.fillStyle = '#fff'; ctx.fillRect(x, y, BLOCK, BLOCK);
+            ctx.fillStyle = '#f00'; ctx.font = `${BLOCK*0.8}px sans-serif`;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('P', x + BLOCK/2, y + BLOCK/2);
+        } else {
+            ctx.fillStyle = COLORS[v]; ctx.fillRect(x, y, BLOCK, BLOCK);
+        }
+        ctx.strokeStyle = '#000'; ctx.strokeRect(x, y, BLOCK, BLOCK);
+      }
+    }
+
+    // ▼▼▼ スピードアップゲージ（displayGaugeを使用） ▼▼▼
+    const gaugeWidth  = 20, gaugeHeight = ROWS*BLOCK - 100, centerY = OFFY + (ROWS*BLOCK)/2;
+    const gaugeX = OFFX + COLS*BLOCK + 10, gaugeY = centerY - gaugeHeight/2;
+    ctx.fillStyle = '#555'; ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+    const fillH = gaugeHeight * (displayGauge / 100); // ここを変更
+    ctx.fillStyle = '#f00';
+    ctx.fillRect(gaugeX, gaugeY + (gaugeHeight - fillH), gaugeWidth, fillH);
+    ctx.strokeStyle = '#fff'; ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+    // ▲▲▲ ここまで変更 ▲▲▲
+
+    // ▼▼▼ インベントリ表示（アニメーション対応） ▼▼▼
+    const invY = OFFY + ROWS * BLOCK + 10;
+    const itemSize = BLOCK; const itemGap = 5;
+
+    // 1. 背景スロットを描画
+    for (let i = 0; i < MAX_INVENTORY; i++) {
+        const bgX = OFFX + i * (itemSize + itemGap);
+        ctx.fillStyle = '#555'; ctx.fillRect(bgX, invY, itemSize, itemSize);
+        ctx.strokeStyle = '#fff'; ctx.strokeRect(bgX, invY, itemSize, itemSize);
+    }
+    
+    // 2. 使用されたアイテムのアニメーション描画
+    if (usedItemAnimation) {
+        const p = Math.min((now - usedItemAnimation.startTime) / usedItemAnimation.duration, 1.0);
+        const scale = 1 + p * 0.5, alpha = 1 - p;
+        const animX = OFFX + itemSize/2, animY = invY + itemSize/2;
+        ctx.save();
+        ctx.globalAlpha = alpha; ctx.translate(animX, animY); ctx.scale(scale, scale);
+        ctx.fillStyle = '#fff'; ctx.font = `${itemSize * 0.6}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(usedItemAnimation.item, 0, 0);
+        ctx.restore();
+    }
+
+    // 3. 残りのアイテムを（スライドアニメーション付きで）描画
+    for (let i = 0; i < inventory.length; i++) {
+        const startX = OFFX + (i + 1) * (itemSize + itemGap);
+        const endX   = OFFX + i * (itemSize + itemGap);
+        let currentX = endX;
+
+        if (inventorySlideAnimation) {
+            const p = Math.min((now - inventorySlideAnimation.startTime) / inventorySlideAnimation.duration, 1.0);
+            currentX = startX - (startX - endX) * easeInOutCubic(p);
+        }
+        
+        ctx.fillStyle = '#fff'; ctx.font = `${itemSize * 0.6}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(inventory[i], currentX + itemSize/2, invY + itemSize/2);
+    }
+    // ▲▲▲ ここまで変更 ▲▲▲
+
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  spawn();
+  loop();
+})();
+</script>
+</body>
+</html>

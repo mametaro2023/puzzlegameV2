@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>ブロック積みゲーム（バグ修正版）</title>
+  <style>
+    body { margin:0; overflow:hidden; background:#222; }
+    canvas { display:block; margin:0 auto; background:#333; }
+    /* 画面幅が769px以上のデバイスで適用されるスタイル */
+    @media screen and (min-width: 769px) {
+      #controls-overlay {
+        display: none; /* 操作ボタンのコンテナを非表示にする */
+      }
+    }
+  </style>
+</head>
+<body>
+<canvas id="game" width="1600" height="1000"></canvas>
+<script>
+(() => {
+  // --- Canvasとコンテキスト設定 ---
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  // --- 定数定義 ---
+  // Canvas & Grid
+  const CW = canvas.width, CH = canvas.height;
+  const COLS = 8, ROWS = 15;
+  const INVENTORY_AREA_HEIGHT = 100; // インベントリを描画するための領域の高さ
+  const FIELD_AREA_HEIGHT = CH - INVENTORY_AREA_HEIGHT; // フィールドが使用できる高さ
+  const BLOCK = Math.min(CW / COLS, FIELD_AREA_HEIGHT / ROWS) | 0;
+  const OFFX = (CW - BLOCK*COLS)/2 | 0;
+  const OFFY = 0;
+  const COLORS = ['#000','#f00','#0ff','#ff0','#0f0','#f0f'];
+
+  // ゲームプレイ関連
+  const LOCK_DELAY = 500;          // ミノが接地してからロックされるまでの時間(ms)
+  const CLEAR_ANIM_DELAY = 200;    // ブロック消去後の落下アニメーションまでの待ち時間(ms)
+  const DROP_ANIM_DELAY = 100;     // ブロック落下後の再チェックまでの待ち時間(ms)
+  const FALL_ANIM_DURATION = 300; // 落下アニメーションの時間 (0.15秒)
+  const SPAWN_DELAY = 50;         // 次のミノが出現するまでの待ち時間(ms)
+  const CLEAR_CHECK_DELAY = 200;   // ← 修正点: 消去チェック処理の遅延時間を定義
+  const SPAWN_X = 4; // ← 追加: ミノの出現X座標 (3から4へ変更)
+  const SPAWN_Y = -3; // ← 追加: ミノの出現Y座標
+  const ITEM_TYPES = ['+1', '+2', '-1', '-2', '!', 'P', '+S', '-S', 'FR', 'X']; // ← 追加
+  const MAX_INVENTORY = 8;        // ← 追加
+  const P_BLOCK_ID = 99;          // ← 追加: Pブロックを識別するための特別なID
+
+  // 速度 & ゲージ関連
+  const BASE_SPEED = 1.0;          // 通常の落下速度 (ブロック/秒)
+  const MAX_SPEED_BONUS = 3.0;     // ゲージ100%時の追加落下速度
+  const GAUGE_COMBO_MULTIPLIER = 2;// ゲージ上昇量のコンボ倍率
+
+  // --- ゲーム状態変数 ---
+  let grid = Array.from({length:ROWS}, ()=>Array(COLS).fill(0));
+  let cur = null;                  // 操作中のミノ
+  let lockTimer = null;            // ロックまでのタイマー
+  let falling = true;              // 落下中かどうかのフラグ
+  let nextQueue = [];              // 次のミノのキュー
+  let clearPhase = false;          // ブロック消去・落下中フラグ
+  let combo = 0;                   // 連鎖カウント
+  let gauge = 0;                   // 速度ゲージ (0-100%)
+  let prevTime = performance.now(); // フレーム間の時間計算用
+  let fallingBlocks = []; // 落下アニメーション中のブロック情報を格納する配列
+  let inventory = ['X','FR','+1'];             // ← 追加: アイテムインベントリ
+  let isPBlockActive = false;     // ← 追加: Pブロックアイテムの効果が有効か
+  let isFlipAnimating = false; // ← この行を追加
+  let lockGrid = Array.from({length:ROWS}, ()=>Array(COLS).fill(false)); // ← 追加: ロック状態を管理
+  let droppingXBlocks = []; // ← 追加: Xアイテムで落下するブロック
+  let particles = [];              // ← 追加: パーティクル管理用の配列
+
+  // --- ゲームロジック ---
+  /**
+   * イージング関数：easeInOutQuint
+   * @param {number} x - 進捗度 (0.0 から 1.0)
+   * @returns {number} - 変化量
+   */
+  function easeOutBounce(x) {
+      const n1 = 7.5625;
+      const d1 = 2.75;
+
+      if (x < 1 / d1) {
+          return n1 * x * x;
+      } else if (x < 2 / d1) {
+          return n1 * (x -= 1.5 / d1) * x + 0.75;
+      } else if (x < 2.5 / d1) {
+          return n1 * (x -= 2.25 / d1) * x + 0.9375;
+      } else {
+          return n1 * (x -= 2.625 / d1) * x + 0.984375;
+      }
+  }
+
+    /**
+   * イージング関数：easeOutCubic
+   * @param {number} x - 進捗度 (0.0 から 1.0)
+   * @returns {number} - 変化量
+   */
+  function easeOutCubic(x) {
+      return 1 - Math.pow(1 - x, 3);
+  }
+
+  
+
+  function triggerFallAnimation() {
+    const blocksToAnimate = [];
+
+    // ステップ1: 落下すべきブロックと、そのロック状態を全てリストアップする
+    for (let c = 0; c < COLS; c++) {
+        let fallDist = 0;
+        for (let r = ROWS - 1; r >= 0; r--) {
+            if (grid[r][c] === 0) {
+                fallDist++;
+            } else if (fallDist > 0) {
+                blocksToAnimate.push({
+                    fromR: r,
+                    toR: r + fallDist,
+                    col: c,
+                    value: grid[r][c],
+                    isLocked: lockGrid[r][c]
+                });
+            }
+        }
+    }
+
+    if (blocksToAnimate.length === 0) {
+        clearPhase = false;
+        combo = 0;
+        setTimeout(() => spawn(), SPAWN_DELAY);
+        return;
+    }
+
+    // ステップ2: リストアップしたブロックとロック状態をgrid/lockGridからまとめて削除する
+    for (const block of blocksToAnimate) {
+        grid[block.fromR][block.col] = 0;
+        lockGrid[block.fromR][block.col] = false;
+    }
+
+    // ステップ3: アニメーションリストを準備し、イージング関数を指定して開始する
+    const now = performance.now();
+    fallingBlocks = blocksToAnimate.map(b => ({ 
+        ...b, 
+        animStartTime: now,
+        easing: 'easeOutBounce' // ★★★ 修正点: Bounce(弾む)に変更 ★★★
+    }));
+}
+
+  
+  function spawn() {
+    isPBlockActive = false;
+    if (nextQueue.length < 2) {
+      while (nextQueue.length < 2) nextQueue.push(generateMino());
+    }
+    cur = nextQueue.shift();
+    cur.x = SPAWN_X;
+    cur.y = SPAWN_Y;
+    nextQueue.push(generateMino());
+    combo = 0;
+    falling = true;
+    if (collide(cur.x, cur.y)) gameOver();
+  }
+
+  function collide(x,y) {
+    const baseY = Math.floor(y);
+    for (let i=0;i<3;i++){
+      const r = baseY + i, c = x;
+      if (r>=ROWS) return true;
+      if (r>=0 && grid[r][c]>0) return true;
+    }
+    return false;
+  }
+
+function lockPiece() {
+    const baseY = Math.floor(cur.y);
+
+    // Pブロックかどうかに関わらず、全てのミノをグリッドに固定する
+    for (let i = 0; i < 3; i++) {
+      const r = baseY + i, c = cur.x;
+      if (r >= 0 && r < ROWS) grid[r][c] = cur.cells[i];
+    }
+    cur = null;
+    // その後の消去判定はstartClearに一任する
+    startClear();
+}
+
+  function generateMino() {
+    const types = [1,2,3,4,5];
+    return {
+      cells: Array.from({length:3}, ()=>types[Math.random()*5|0]),
+      x: SPAWN_X,
+      y: SPAWN_Y
+    };
+  }
+
+function startClear() {
+    clearPhase = true;
+    setTimeout(() => {
+        const toClear = new Set();
+
+        // --- Pブロックの効果をここで判定 ---
+        const pBlocks = [];
+        const colorsToClear = new Set();
+        // 1. グリッド内にあるPブロックとその下の色をリストアップ
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                if (grid[r][c] === P_BLOCK_ID) {
+                    pBlocks.push({ r, c });
+                    if (r + 1 < ROWS && grid[r + 1][c] > 0 && grid[r + 1][c] !== P_BLOCK_ID) {
+                        colorsToClear.add(grid[r + 1][c]);
+                    }
+                }
+            }
+        }
+
+        // 2. 消すべき色に合致するブロックと、Pブロック自体を消去対象に追加
+        if (pBlocks.length > 0) {
+            pBlocks.forEach(p => toClear.add(p.r + '_' + p.c));
+            if (colorsToClear.size > 0) {
+                for (let r = 0; r < ROWS; r++) {
+                    for (let c = 0; c < COLS; c++) {
+                        if (colorsToClear.has(grid[r][c])) {
+                            toClear.add(r + '_' + c);
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- 通常の3つ揃ったブロックの判定（ロック状態を考慮）---
+        const dirs = [[1, 0], [0, 1], [1, 1], [1, -1]];
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                const v = grid[r][c];
+                // Pブロック、空マス、またはロックされたブロックは判定の起点にしない
+                if (!v || v === P_BLOCK_ID || lockGrid[r][c]) continue;
+                dirs.forEach(([dr, dc]) => {
+                    let cnt = 1, rr = r, cc = c;
+                    const connected = [{ r, c }];
+                    while (true) {
+                        rr += dr; cc += dc;
+                        if (rr < 0 || rr >= ROWS || cc < 0 || cc >= COLS || grid[rr][cc] !== v || lockGrid[rr][cc]) break;
+                        cnt++;
+                        connected.push({ r: rr, c: cc });
+                    }
+                    if (cnt >= 3) {
+                        connected.forEach(pos => toClear.add(pos.r + '_' + pos.c));
+                    }
+                });
+            }
+        }
+
+        // --- ロック解除処理 ---
+        if (toClear.size > 0) {
+            const unlockedPositions = new Set();
+            const checkDirs = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // ★★★ 修正点: 上下左右のみに限定 ★★★
+
+            toClear.forEach(key => {
+                const [r, c] = key.split('_').map(Number);
+                // 消えるブロックの上下左右をチェック
+                checkDirs.forEach(([dr, dc]) => {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && lockGrid[nr][nc]) {
+                        unlockedPositions.add(nr + '_' + nc);
+                    }
+                });
+            });
+            // 該当するブロックのロックを解除
+            unlockedPositions.forEach(key => {
+                const [r, c] = key.split('_').map(Number);
+                lockGrid[r][c] = false;
+            });
+        }
+
+        // --- 最終的な消去処理 ---
+        if (toClear.size > 0) {
+            gainItem(); // アイテム獲得
+            combo++;
+            gauge += toClear.size * combo * GAUGE_COMBO_MULTIPLIER;
+            if (gauge > 100) gauge = 0;
+
+            toClear.forEach(k => {
+                const [ar, ac] = k.split('_').map(Number);
+                grid[ar][ac] = 0;
+            });
+            setTimeout(() => {
+                triggerFallAnimation();
+            }, CLEAR_ANIM_DELAY);
+        } else {
+            clearPhase = false;
+            combo = 0;
+            setTimeout(() => spawn(), SPAWN_DELAY);
+        }
+    }, CLEAR_CHECK_DELAY);
+}
+
+function gameOver() {
+    alert('Game Over');
+    grid = Array.from({length:ROWS}, ()=>Array(COLS).fill(0));
+    spawn();
+}
+
+
+// --- アイテム関連ロジック ---
+/**
+* バツ付きブロックの落下を開始する (Xアイテム用)
+*/
+function triggerXBlockFall() {
+    clearPhase = true; // アニメーション中は操作不能にする
+    droppingXBlocks = [];
+    const newRow = [];
+    for (let c = 0; c < COLS; c++) {
+        newRow.push({
+            col: c,
+            value: Math.floor(Math.random() * 5) + 1,
+        });
+    }
+
+    // すぐにアニメーションを開始（待機時間を削除）
+    for (const block of newRow) {
+        let toR = ROWS - 1;
+        for (let r = 0; r < ROWS; r++) {
+            if (grid[r][block.col] > 0 || lockGrid[r][block.col]) {
+                toR = r - 1;
+                break;
+            }
+        }
+        if (toR < 0) continue;
+
+        droppingXBlocks.push({
+            fromR: 0, // ★★★ 修正点: 出現位置を-1から0に変更 ★★★
+            toR: toR,
+            col: block.col,
+            value: block.value,
+            animStartTime: performance.now()
+        });
+    }
+}
+
+/**
+ * ランダムなアイテムを1つインベントリに追加する
+ */
+function gainItem() {
+  if (inventory.length < MAX_INVENTORY) {
+    const randomIndex = Math.floor(Math.random() * ITEM_TYPES.length);
+    inventory.push(ITEM_TYPES[randomIndex]);
+  }
+}
+
+/**
+ * グリッドを上下反転させるアニメーションを開始する (FRアイテム用)
+ */
+function triggerFlipAnimation() {
+    clearPhase = true;
+    fallingBlocks = [];
+    const now = performance.now();
+
+    // ★★★ ここからロジックを全面的に変更 ★★★
+    // 各列ごとに処理
+    for (let c = 0; c < COLS; c++) {
+        const existingBlocks = [];
+        // 1. その列に存在するブロックを上から順にリストアップ
+        for (let r = 0; r < ROWS; r++) {
+            if (grid[r][c] > 0) {
+                existingBlocks.push({
+                    r: r,
+                    value: grid[r][c],
+                    isLocked: lockGrid[r][c]
+                });
+            }
+        }
+
+        if (existingBlocks.length === 0) continue;
+
+        // 2. 存在するブロックのリストを逆順にする
+        const reversedBlocks = [...existingBlocks].reverse();
+
+        // 3. 元のブロック位置から、逆順リストの位置へ移動するアニメーションを作成
+        for (let i = 0; i < existingBlocks.length; i++) {
+            const fromBlock = existingBlocks[i];
+            const toBlock = reversedBlocks[i];
+            
+            fallingBlocks.push({
+                fromR: fromBlock.r,      // 元の位置
+                toR: toBlock.r,          // 移動先の位置
+                col: c,
+                value: fromBlock.value,
+                isLocked: fromBlock.isLocked,
+                animStartTime: now,
+                easing: 'easeOutCubic'   // ★★★ バウンスではなくCubicを指定
+            });
+        }
+    }
+    // ★★★ ここまで ★★★
+
+    // アニメーションを開始するために、元のグリッドとロック状態を空にする
+    grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    lockGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+}
+
+
+/**
+ * インベントリの最初のアイテムを使用する
+ */
+function useItem() {
+  // アイテムがない、またはアニメーション中は使用不可
+  if (inventory.length === 0 || clearPhase || fallingBlocks.length > 0) return;
+
+  const item = inventory.shift(); // 先頭のアイテムを取り出して使用
+
+  switch (item) {
+    case '+1':
+      riseGrid(1);
+      break;
+    case '+2':
+      riseGrid(2);
+      break;
+    case '-1':
+      dropGrid(1);
+      break;
+    case '-2':
+      dropGrid(2);
+      break;
+    case '!':
+      grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+      break;
+    case 'P':
+      isPBlockActive = true;
+      // 次のミノをPブロックで上書き
+      nextQueue[0] = {
+        cells: [P_BLOCK_ID, P_BLOCK_ID, P_BLOCK_ID],
+        x: SPAWN_X,
+        y: SPAWN_Y
+      };
+      break;
+    case '+S':
+      gauge = 99;
+      break;
+    case '-S':
+      gauge = 0;
+      break;
+    case 'FR':
+      isFlipAnimating = true; // ★★★ FRアニメーション中であることを示すフラグを立てる
+      triggerFlipAnimation(); // ★★★ 専用のアニメーション準備関数を呼び出す
+      break;
+    case 'X':
+      triggerXBlockFall();
+      break;
+  }
+}
+
+
+/**
+ * グリッドをせり上げる (+1, +2アイテム用)
+ * @param {number} numRows - せり上げる段数
+ */
+function riseGrid(numRows) {
+  // --- ステップ1: 既存のブロックとロック状態を上にシフト ---
+  for (let r = 0; r < ROWS - numRows; r++) {
+    grid[r] = grid[r + numRows];
+    lockGrid[r] = lockGrid[r + numRows]; // ★★★ ロック状態も一緒にシフト
+  }
+
+  // --- ステップ2: 上にはみ出したブロックがあればゲームオーバー ---
+  // この判定はgridだけで十分なので変更なし
+  if (grid[0].some(cell => cell > 0)) {
+      gameOver();
+      return;
+  }
+
+  // --- ステップ3: 下に新しいブロックをランダムに生成 ---
+  for (let r = ROWS - numRows; r < ROWS; r++) {
+    const newGridRow = [];
+    const newLockRow = [];
+    for (let c = 0; c < COLS; c++) {
+        // ブロックの色を生成
+        newGridRow.push(Math.floor(Math.random() * 5) + 1);
+        // ★★★ 50%の確率でロック状態(true)を生成 ★★★
+        newLockRow.push(Math.random() < 0.5);
+    }
+    grid[r] = newGridRow;
+    lockGrid[r] = newLockRow;
+  }
+}
+
+/**
+ * グリッドを落下させる (-1, -2アイテム用)
+ * @param {number} numRows - 下げる段数
+ */
+function dropGrid(numRows) {
+    // 下にシフト
+    for (let r = ROWS - 1; r >= numRows; r--) {
+        grid[r] = grid[r - numRows];
+    }
+    // 上を空にする
+    for (let r = 0; r < numRows; r++) {
+        grid[r].fill(0);
+    }
+}
+
+/**
+ * グリッドを上下反転させる (FRアイテム用)
+ */
+function flipGrid() {
+    for (let c = 0; c < COLS; c++) {
+        // ブロックの色情報を反転
+        const column = grid.map(row => row[c]);
+        column.reverse();
+        for (let r = 0; r < ROWS; r++) {
+            grid[r][c] = column[r];
+        }
+
+        // ★★★ 追加: ロック状態も同様に反転させる ★★★
+        const lockColumn = lockGrid.map(row => row[c]);
+        lockColumn.reverse();
+        for (let r = 0; r < ROWS; r++) {
+            lockGrid[r][c] = lockColumn[r];
+        }
+    }
+}
+
+function update() {
+    const now = performance.now();
+    const dt = (now - prevTime) / 1000;
+    prevTime = now;
+
+    // Xアイテムによる落下ブロックのアニメーション処理
+    if (droppingXBlocks.length > 0) {
+        let allLanded = true;
+        for (const block of droppingXBlocks) {
+            const elapsedTime = now - block.animStartTime;
+            if (elapsedTime < FALL_ANIM_DURATION) {
+                allLanded = false; //まだアニメーション中のブロックがある
+            }
+        }
+
+        if (allLanded) {
+            // 全て着地したら、グリッドとロックグリッドに情報を書き込む
+            for (const block of droppingXBlocks) {
+                if (block.toR >= 0) { // 画面内に着地できる場合のみ
+                    grid[block.toR][block.col] = block.value;
+                    lockGrid[block.toR][block.col] = true; // ロック状態にする
+                }
+            }
+            droppingXBlocks = []; // アニメーションリストを空にする
+            clearPhase = false;   // 操作可能に戻す
+        }
+        return; // アニメーション中は他の処理をしない
+    } // ← ★★★ 不足していた閉じ括弧を追加 ★★★
+
+    // 落下アニメーション中のブロックを処理
+    if (fallingBlocks.length > 0) {
+        const remainingBlocks = [];
+        for (const block of fallingBlocks) {
+            const elapsedTime = now - block.animStartTime;
+            if (elapsedTime >= FALL_ANIM_DURATION) {
+                // アニメーション完了：グリッドにブロックとロック状態を固定する
+                grid[block.toR][block.col] = block.value;
+                lockGrid[block.toR][block.col] = block.isLocked; 
+            } else {
+                // アニメーション継続中のブロックは残す
+                remainingBlocks.push(block);
+            }
+        }
+        fallingBlocks = remainingBlocks;
+
+        // 全ての落下アニメーションが完了した後の処理
+        if (fallingBlocks.length === 0) {
+            // ★★★ isFlipAnimatingフラグを見て処理を分岐 ★★★
+            if (isFlipAnimating) {
+                // FRアイテムのアニメーション完了時は、フラグを戻してゲームを再開
+                isFlipAnimating = false;
+                clearPhase = false;
+            } else {
+                // 通常の落下完了時は、次の連鎖チェックを行う
+                setTimeout(() => startClear(), DROP_ANIM_DELAY);
+            }
+        }
+        return; // 落下アニメーション中は操作中のミノの更新をしない
+    }
+
+    if (!cur || !falling) return;
+
+    // 通常のミノの落下処理
+    const speed = BASE_SPEED + MAX_SPEED_BONUS * (gauge / 100);
+    const newY = cur.y + speed * dt;
+    const baseRow = Math.floor(cur.y);
+    if (!collide(cur.x, baseRow + 1)) {
+        cur.y = newY;
+    } else {
+        cur.y = baseRow;
+        falling = false;
+        lockTimer = setTimeout(() => lockPiece(), LOCK_DELAY);
+    }
+}
+
+  function move(dx, dy){
+    if (!cur || clearPhase) return;
+    
+    const nx = cur.x + dx; // 移動後のX座標
+    const ny = cur.y + dy; // 移動後のY座標
+
+    // --- 横移動の判定 ---
+    if (dx) {
+      // 1. 壁との衝突チェック
+      if (nx < 0 || nx >= COLS) {
+        return; // 移動不可
+      }
+
+      // 2. 固定ブロックとの「直接的な」衝突チェック
+      //    ミノの各ブロックが見た目上かかっている可能性のある全ての行をチェックする
+      for (let i = 0; i < 3; i++) {
+        // ブロックの上端と下端が属する行を両方チェック対象とする
+        const checkRow1 = Math.floor(cur.y + i);
+        const checkRow2 = Math.floor(cur.y + i + 0.999); // ほぼ下端の位置
+
+        if ((checkRow1 >= 0 && grid[checkRow1][nx] > 0) || 
+            (checkRow2 !== checkRow1 && checkRow2 >= 0 && grid[checkRow2][nx] > 0)) {
+          return; // 移動先にブロックがあるので移動不可
+        }
+      }
+
+      // 3. 「上に乗る」バグを防ぐための追加チェック
+      //    移動することで、真下にブロックが出現しないか確認する
+      const baseRow = Math.floor(cur.y);
+      const isCollidingBelowAfterMove = collide(nx, baseRow + 1);
+      const isCollidingBelowBeforeMove = collide(cur.x, baseRow + 1);
+
+      // 移動前は下にブロックが無く、移動後に下にブロックが出現する場合
+      if (isCollidingBelowAfterMove && !isCollidingBelowBeforeMove) {
+        return; // この移動は「上に乗る」現象を引き起こすので不可
+      }
+
+      // 全てのチェックを通過したら、X座標を更新
+      cur.x = nx;
+    }
+
+    // --- 下移動の判定 ---
+    if (dy) {
+      if (!collide(cur.x, Math.floor(ny))) {
+        cur.y = ny;
+      }
+    }
+
+    // --- ロック解除判定 ---
+    // 横移動によってもロックが解除される可能性がある
+    const wasLocked = !falling;
+    if (wasLocked && !collide(cur.x, Math.floor(cur.y) + 1)) {
+      falling = true;
+      clearTimeout(lockTimer);
+      lockTimer = null;
+    }
+  }
+
+  // --- 入力処理 ---
+  document.addEventListener('keydown', e=>{
+    if(!cur||clearPhase) return;
+    if(e.key==='ArrowLeft') move(-1,0);
+    if(e.key==='ArrowRight') move(1,0);
+    if(e.key==='ArrowDown') {
+     cur.cells.unshift(cur.cells.pop());
+    }
+    if(e.key===' ') { // Hard drop
+      while(!collide(cur.x,cur.y+1)) cur.y++;
+      clearTimeout(lockTimer);
+      lockPiece();
+    }
+    if(e.key==='ArrowUp'){ // rotate colors
+      cur.cells.push(cur.cells.shift());
+    }
+    if(e.key==='x' || e.key==='X'){
+      useItem();
+    }
+  });
+
+/**
+ * ロック効果（サイン波による透明度変化とバツ印）を描画するヘルパー関数
+ * @param {number} x - 描画先のX座標
+ * @param {number} y - 描画先のY座標
+ */
+function drawLockedEffect(x, y) {
+    const now = performance.now();
+    // 5秒周期のサイン波を計算 (-1から1の範囲)
+    const sinWave = Math.sin(now / (5000 / (2 * Math.PI)));
+    // 透明度アルファ値を0.25から0.75の範囲で変動させる
+    const alpha = 0.5 + sinWave * 0.25;
+
+    ctx.save();
+    ctx.lineWidth = 4;
+    // ★★★ 修正点: 色指定をRGBAに変更し、透明度(alpha)を適用 ★★★
+    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`; // 白い枠
+    ctx.beginPath();
+    ctx.moveTo(x + 5, y + 5);
+    ctx.lineTo(x + BLOCK - 5, y + BLOCK - 5);
+    ctx.moveTo(x + BLOCK - 5, y + 5);
+    ctx.lineTo(x + 5, y + BLOCK - 5);
+    ctx.stroke();
+
+    ctx.lineWidth = 2;
+    // ★★★ 修正点: 色指定をRGBAに変更し、透明度(alpha)を適用 ★★★
+    ctx.strokeStyle = `rgba(255, 0, 0, ${alpha})`; // 赤いバツ
+    ctx.beginPath();
+    ctx.moveTo(x + 5, y + 5);
+    ctx.lineTo(x + BLOCK - 5, y + BLOCK - 5);
+    ctx.moveTo(x + BLOCK - 5, y + 5);
+    ctx.lineTo(x + 5, y + BLOCK - 5);
+    ctx.stroke();
+    
+    ctx.restore();
+}
+
+  // --- 描画処理 ---
+  function draw() {
+    ctx.clearRect(0,0,CW,CH);
+    // グリッド線
+    ctx.strokeStyle='#555';
+    for(let i=0;i<=COLS;i++){
+      const x=OFFX+i*BLOCK;
+      ctx.beginPath(); ctx.moveTo(x,OFFY); ctx.lineTo(x,OFFY+ROWS*BLOCK); ctx.stroke();
+    }
+    for(let i=0;i<=ROWS;i++){
+      const y=OFFY+i*BLOCK;
+      ctx.beginPath(); ctx.moveTo(OFFX,y); ctx.lineTo(OFFX+COLS*BLOCK,y); ctx.stroke();
+    }
+
+    // ゴースト（落下予測地点）
+    if (cur) {
+      let ghostY = Math.floor(cur.y);
+      while (!collide(cur.x, ghostY + 1)) ghostY++;
+      ctx.globalAlpha = 0.3;
+      for (let i = 0; i < 3; i++) {
+        const c = cur.x;
+        const r = ghostY + i;
+        ctx.fillStyle = COLORS[cur.cells[i]];
+        ctx.fillRect(OFFX + c * BLOCK, OFFY + r * BLOCK, BLOCK, BLOCK);
+      }
+      ctx.globalAlpha = 1.0;
+    }
+
+    // 固定ブロック
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+        const v=grid[r][c];
+        if(v){
+            ctx.save();
+            if (lockGrid[r][c]) {
+                // ロックされている場合、コントラスト半減（固定値）
+                ctx.globalAlpha = 0.5;
+            }
+            
+            // ブロック本体の描画 (Pブロックと通常ブロック)
+            if (v === P_BLOCK_ID) {
+                // ★★★ 欠落していたPブロック描画を追加 ★★★
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(OFFX+c*BLOCK, OFFY+r*BLOCK, BLOCK, BLOCK);
+                ctx.fillStyle = '#f00';
+                ctx.font = `${BLOCK*0.8}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('P', OFFX+c*BLOCK + BLOCK/2, OFFY+r*BLOCK + BLOCK/2);
+            } else {
+                ctx.fillStyle = COLORS[v];
+                ctx.fillRect(OFFX+c*BLOCK, OFFY+r*BLOCK, BLOCK, BLOCK);
+            }
+            
+            ctx.restore(); // globalAlphaを1.0に戻す
+
+            // ロックされている場合は、ヘルパー関数でエフェクトを描画
+            if (lockGrid[r][c]) {
+                drawLockedEffect(OFFX + c * BLOCK, OFFY + r * BLOCK);
+            }
+        }
+    }
+
+    // 落下アニメーション中のブロックを描画
+    if (fallingBlocks.length > 0) {
+        const now = performance.now();
+        for (const block of fallingBlocks) {
+            const elapsedTime = now - block.animStartTime;
+            const progress = Math.min(elapsedTime / FALL_ANIM_DURATION, 1.0);
+            
+            let easedProgress;
+            if (block.easing === 'easeOutBounce') {
+                easedProgress = easeOutBounce(progress);
+            } else { // デフォルトはeaseOutCubic
+                easedProgress = easeOutCubic(progress);
+            }
+            // ★★★ ここまで修正 ★★★
+
+            const startY = OFFY + block.fromR * BLOCK;
+            const endY = OFFY + block.toR * BLOCK;
+            const currentY = startY + (endY - startY) * easedProgress;
+            const x = OFFX + block.col * BLOCK;
+
+            // ロック状態を考慮して描画
+            ctx.save();
+            if (block.isLocked) {
+                ctx.globalAlpha = 0.5;
+            }
+            ctx.fillStyle = COLORS[block.value];
+            ctx.fillRect(x, currentY, BLOCK, BLOCK);
+            ctx.restore();
+
+            if (block.isLocked) {
+                drawLockedEffect(x, currentY);
+            }
+        }
+    }
+
+    // Xアイテムで落下中のブロックを描画
+    if (droppingXBlocks.length > 0) {
+        const now = performance.now();
+        for (const block of droppingXBlocks) {
+            const elapsedTime = now - block.animStartTime;
+            const progress = Math.min(elapsedTime / FALL_ANIM_DURATION, 1.0);
+            
+            // ★★★ 修正点: easeOutBounceを呼び出すように戻す ★★★
+            const easedProgress = easeOutBounce(progress);
+
+            const startY = OFFY + block.fromR * BLOCK;
+            const endY = OFFY + block.toR * BLOCK;
+            const currentY = startY + (endY - startY) * easedProgress;
+            const x = OFFX + block.col * BLOCK;
+            
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            ctx.fillStyle = COLORS[block.value];
+            ctx.fillRect(x, currentY, BLOCK, BLOCK);
+            ctx.restore();
+
+            drawLockedEffect(x, currentY);
+        }
+    }
+
+
+    // 操作中のミノ
+    if(cur){
+      for(let i=0;i<3;i++){
+        const r=cur.y+i, c=cur.x;
+        const v = cur.cells[i];
+        if (v === P_BLOCK_ID) { // Pブロックの描画
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(OFFX+c*BLOCK, OFFY+r*BLOCK, BLOCK, BLOCK);
+            ctx.fillStyle = '#f00';
+            ctx.font = `${BLOCK*0.8}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('P', OFFX+c*BLOCK + BLOCK/2, OFFY+r*BLOCK + BLOCK/2);
+        } else { // 通常ブロック
+            ctx.fillStyle=COLORS[v];
+            ctx.fillRect(OFFX+c*BLOCK, OFFY+r*BLOCK, BLOCK, BLOCK);
+        }
+      }
+    }
+    ctx.font = '20px sans-serif';
+    ctx.fillStyle = '#fff';
+
+   // NEXT表示
+   const nextX = OFFX + COLS*BLOCK + BLOCK + 20;
+   ctx.fillText('NEXT', nextX, 30);
+   for (let n = 0; n < 2; n++) {
+     const next = nextQueue[n];
+     if (!next) continue;
+     for (let i = 0; i < 3; i++) {
+       const x = nextX;
+       const y = 50 + n * (BLOCK * 3 + 20) + i * BLOCK;
+       const v = next.cells[i];
+
+       if (v === P_BLOCK_ID) { // Pブロックの描画
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(x, y, BLOCK, BLOCK);
+            ctx.fillStyle = '#f00';
+            ctx.font = `${BLOCK*0.8}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('P', x + BLOCK/2, y + BLOCK/2);
+       } else { // 通常ブロック
+            ctx.fillStyle = COLORS[v];
+            ctx.fillRect(x, y, BLOCK, BLOCK);
+       }
+       ctx.strokeStyle = '#000';
+       ctx.strokeRect(x, y, BLOCK, BLOCK);
+     }
+   }
+
+    // スピードアップゲージ
+    const gaugeWidth  = 20;
+    const gaugeHeight = ROWS*BLOCK - 100;
+    const centerY     = OFFY + (ROWS*BLOCK)/2;
+    const gaugeX      = OFFX + COLS*BLOCK + 10;
+    const gaugeY      = centerY - gaugeHeight/2;
+    ctx.fillStyle = '#555';
+    ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+    const fillH = gaugeHeight * (gauge / 100);
+    ctx.fillStyle = '#f00';
+    ctx.fillRect(gaugeX, gaugeY + (gaugeHeight - fillH), gaugeWidth, fillH);
+    ctx.strokeStyle = '#fff';
+    ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+
+
+    // --- インベントリ表示 ---
+    const invY = OFFY + ROWS * BLOCK + 10;
+    for (let i = 0; i < MAX_INVENTORY; i++) {
+        const invX = OFFX + i * (BLOCK + 5);
+        // アイテムの背景
+        ctx.fillStyle = '#555';
+        ctx.fillRect(invX, invY, BLOCK, BLOCK);
+
+        // インベントリにアイテムがあれば表示
+        if (inventory[i]) {
+            const itemText = inventory[i];
+            ctx.fillStyle = '#fff';
+            ctx.font = `${BLOCK*0.6}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(itemText, invX + BLOCK/2, invY + BLOCK/2);
+        }
+        // 枠線
+        ctx.strokeStyle = '#fff';
+        ctx.strokeRect(invX, invY, BLOCK, BLOCK);
+    }
+    // テキスト描画設定を元に戻す
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // --- メインループ ---
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // --- ゲーム開始 ---
+  spawn();
+  loop();
+})();
+</script>
+</body>
+</html>

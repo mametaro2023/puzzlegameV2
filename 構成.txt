@@ -1,0 +1,12 @@
+/ (プロジェクトルート)
+├── index.html          // HTMLファイル
+├── css/
+│   └── style.css       // スタイルシート
+└── js/
+    ├── main.js         // 全体を統括し、ゲームループを開始する
+    ├── config.js       // ゲームの設定値（定数）
+    ├── gameController.js // ゲーム全体の進行と状態を管理する
+    ├── board.js        // 1プレイヤー分のゲーム盤面の状態とロジック
+    ├── renderer.js     // Canvasへの描画処理
+    ├── inputHandler.js // キーボードやタッチ操作の入力処理
+    └── utils.js        // 汎用的な便利関数（イージングなど）
