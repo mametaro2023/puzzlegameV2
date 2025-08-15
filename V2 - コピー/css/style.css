@@ -1,0 +1,161 @@
+html, body {
+    height: 100%;
+    margin:0;
+    overflow:hidden;
+    background:#222;
+    position: relative;
+}
+#game-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+canvas {
+    display:block;
+    background:#333;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+#controls-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    pointer-events: none;
+}
+.controls-container {
+    width: 100%;
+    max-width: 600px;
+    padding: 15px;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-areas:
+        "rotate-up   .        .          hard-drop"
+        "left        right    use-self   use-opponent"
+        "rotate-down .        .          .";
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    grid-template-rows: repeat(3, 65px);
+    gap: 10px;
+    pointer-events: auto;
+}
+.control-btn {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-radius: 15px;
+    font-size: 22px;
+    font-weight: bold;
+    opacity: 0.7;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+}
+#btn-left { grid-area: left; }
+#btn-right { grid-area: right; }
+#btn-rotate-up { grid-area: rotate-up; }
+#btn-rotate-down { grid-area: rotate-down; }
+#btn-hard-drop { grid-area: hard-drop; font-size: 16px; }
+/*#btn-use-item { grid-area: use-item; }
+*/
+
+#btn-use-self {
+    grid-area: use-self;
+    font-size: 14px; /* 文字数が増えたのでフォントを調整 */
+}
+#btn-use-opponent {
+    grid-area: use-opponent;
+    font-size: 14px;
+    background-color: rgba(100, 150, 255, 0.25); /* 相手用ボタンの色を少し変える */
+    border-color: rgba(150, 200, 255, 0.5);
+}
+
+/* 画面幅が769px以上のデバイスではタッチ操作ボタンを非表示にする */
+@media screen and (min-width: 769px) {
+  #controls-overlay {
+    display: none;
+  }
+}
+
+/* --- ロビー画面のスタイル --- */
+#lobby-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    color: white;
+    font-family: sans-serif;
+    z-index: 10;
+}
+
+#title-screen, #room-screen {
+    text-align: center;
+    background: rgba(34, 34, 34, 0.8);
+    padding: 40px 60px;
+    border-radius: 20px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+}
+
+#lobby-overlay h1 {
+    font-size: 48px;
+    margin-bottom: 30px;
+    text-shadow: 2px 2px 5px rgba(0,0,0,0.7);
+}
+
+#lobby-overlay h2 {
+    font-size: 28px;
+    margin-bottom: 20px;
+}
+
+#lobby-overlay button {
+    font-size: 22px;
+    padding: 12px 30px;
+    border-radius: 10px;
+    border: 2px solid #fff;
+    background-color: #f04a4a;
+    color: white;
+    cursor: pointer;
+    font-weight: bold;
+    transition: transform 0.2s ease, box-shadow 0.2s ease; /* アニメーション設定 */
+}
+
+/* ▼▼▼ ボタンのホバー演出 ▼▼▼ */
+#lobby-overlay button:hover {
+    transform: scale(1.05); /* 少し大きくなる */
+    box-shadow: 0 0 15px rgba(255, 100, 100, 0.8); /* 光るような影 */
+}
+
+#room-input {
+    display: block;
+    width: 250px;
+    padding: 10px;
+    font-size: 18px;
+    margin: 0 auto 20px auto;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+    text-align: center;
+}
+
+.hidden {
+    display: none !important;
+}
+

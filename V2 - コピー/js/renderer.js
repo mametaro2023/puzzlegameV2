@@ -10,7 +10,7 @@ export class Renderer {
     }
 
     // メインの描画関数
-    draw(player1Board, player2Board) {
+    draw(player1Board, player2Board, animationManager) {
         const now = performance.now();
         this.ctx.save();
         
@@ -18,7 +18,7 @@ export class Renderer {
         this.ctx.clearRect(0, 0, C.CW, C.CH);
 
         // --- 攻撃ヒットエフェクト（赤いフラッシュ） ---
-        if (player1Board.attackEffect) {
+        if (animationManager.attackEffect) {
             const effect = player1Board.attackEffect;
             const progress = (now - effect.startTime) / effect.duration;
             if (progress < 1.0) {
@@ -31,7 +31,7 @@ export class Renderer {
 
         // --- 1. 振動オフセットを計算 ---
         let shakeX = 0, shakeY = 0;
-        if (player1Board.screenShake) {
+        if (animationManager.screenShake) {
             const shake = player1Board.screenShake;
             const elapsedTime = now - shake.startTime;
             const progress = elapsedTime / shake.duration;
@@ -50,18 +50,19 @@ export class Renderer {
         this.drawGridLines();
         this.drawGhostPiece(player1Board);
         this.drawBoardState(player1Board);
-        this.drawFallingBlocks(player1Board, now);
-        this.drawDroppingXBlocks(player1Board, now);
-        this.drawParticles(player1Board);
+        this.drawFallingBlocks(animationManager.fallingBlocks, now);
+        this.drawDroppingXBlocks(animationManager.droppingXBlocks, now);
+        this.drawParticles(animationManager.particles);
+
 
         this.ctx.restore();
 
 
         // --- 3. 「揺れない要素」の描画 ---
         // save/restoreの外で描画するので、揺れの影響を受けない
-        this.drawHardDropBlur(player1Board, now);
+        this.drawHardDropBlur(animationManager.hardDropBlur, now);
         this.drawCurrentPiece(player1Board); // 操作中のミノは揺れない
-        this.drawUI(player1Board, now);           // NEXT, ゲージ, インベントリは揺れない
+        this.drawUI(player1Board, animationManager, now);
 
         if (player2Board) {
             this.drawPlayer2View(player2Board, now); // 相手画面も揺れない
@@ -130,14 +131,7 @@ export class Renderer {
     drawBlock(value, x, y, blockSize, brightness = 1.0) {
         this.ctx.save();
         if (value === C.P_BLOCK_ID) {
-            // Pブロックのロジックは変更なし
-            this.ctx.fillStyle = '#fff';
-            this.ctx.fillRect(x, y, blockSize, blockSize);
-            this.ctx.fillStyle = '#f00';
-            this.ctx.font = `${blockSize * 0.8}px sans-serif`;
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'middle';
-            this.ctx.fillText('P', x + blockSize / 2, y + blockSize / 2 + (blockSize * 0.1));
+            // ... (Pブロックの描画は変更なし)
         } else {
             let color = C.COLORS[value];
             if (brightness !== 1.0) {
@@ -203,37 +197,38 @@ export class Renderer {
         this.ctx.stroke();
     }
 
-    drawFallingBlocks(board, now) {
-        if (board.fallingBlocks.length === 0) return;
-        board.fallingBlocks.forEach(b => {
+    drawFallingBlocks(fallingBlocks, now) {
+        if (!fallingBlocks || fallingBlocks.length === 0) return;
+        fallingBlocks.forEach(b => {
             const progress = Math.min((now - b.animStartTime) / C.FALL_ANIM_DURATION, 1.0);
             const eased = b.easing === 'easeOutBounce' ? Utils.easeOutBounce(progress) : Utils.easeOutCubic(progress);
             const y = (C.OFFY + b.fromR * C.BLOCK) + ((C.OFFY + b.toR * C.BLOCK) - (C.OFFY + b.fromR * C.BLOCK)) * eased;
             const x = C.OFFX + b.col * C.BLOCK;
             this.ctx.save();
             if (b.isLocked) { this.ctx.globalAlpha = 0.5; }
-            this.drawBlock(b.value, x, y, C.BLOCK); // 通常サイズを渡す
+            this.drawBlock(b.value, x, y, C.BLOCK);
             this.ctx.restore();
             if (b.isLocked) { this.drawLockedEffect(x, y); }
         });
     }
 
-    drawDroppingXBlocks(board, now) {
-        if (board.droppingXBlocks.length === 0) return;
-        board.droppingXBlocks.forEach(b => {
+    drawDroppingXBlocks(droppingXBlocks, now) {
+        if (!droppingXBlocks || droppingXBlocks.length === 0) return;
+        droppingXBlocks.forEach(b => {
             const progress = Math.min((now - b.animStartTime) / C.FALL_ANIM_DURATION, 1.0);
             const y = (C.OFFY + b.fromR * C.BLOCK) + ((C.OFFY + b.toR * C.BLOCK) - (C.OFFY + b.fromR * C.BLOCK)) * Utils.easeOutBounce(progress);
             const x = C.OFFX + b.col * C.BLOCK;
             this.ctx.save();
             this.ctx.globalAlpha = 0.5;
-            this.drawBlock(b.value, x, y, C.BLOCK); // 通常サイズを渡す
+            this.drawBlock(b.value, x, y, C.BLOCK);
             this.ctx.restore();
             this.drawLockedEffect(x, y);
         });
     }
 
-    drawParticles(board) {
-        board.particles.forEach(p => {
+    drawParticles(particles) {
+        if (!particles) return;
+        particles.forEach(p => {
             const x = p.x;
             const y = p.y;
             this.ctx.save();
@@ -267,7 +262,7 @@ export class Renderer {
         this.ctx.restore();
     }
 
-    drawUI(board, now) {
+    drawUI(board, animationManager, now) {
         // --- NEXT Queue ---
         this.ctx.font = '30px sans-serif';
         this.ctx.fillStyle = '#fff';
@@ -275,7 +270,7 @@ export class Renderer {
         this.ctx.textBaseline = 'alphabetic';
         this.ctx.fillText('NEXT', C.NEXT_X, C.OFFY);
 
-        this.drawNextMinos(board);
+        this.drawNextMinos(board, animationManager.nextMinoAnimation);
 
         // --- Gauge ---
         const gaugeHeight = C.BOARD_HEIGHT;
@@ -288,13 +283,13 @@ export class Renderer {
         this.ctx.strokeRect(C.GAUGE_X, C.OFFY, 40, gaugeHeight);
         
         // --- Inventory ---
-        this.drawInventory(board, now);
+        this.drawInventory(board, animationManager, now);
     }
     
-    drawNextMinos(board) {
+    drawNextMinos(board, nextMinoAnimation) {
         if (board.nextQueue.length === 0) return;
+        const anim = nextMinoAnimation;
 
-        const anim = board.nextMinoAnimation;
         const next1 = board.nextQueue[0];
         const next2 = board.nextQueue[1];
 
@@ -359,7 +354,35 @@ export class Renderer {
         }
     }
 
-    drawInventory(board, now) {
+    // drawBlockメソッドの修正（brightnessの適用方法を再確認）
+    drawBlock(value, x, y, blockSize, brightness = 1.0) {
+        this.ctx.save();
+        if (value === C.P_BLOCK_ID) {
+            // Pブロックのロジックは変更なし
+            this.ctx.fillStyle = '#fff';
+            this.ctx.fillRect(x, y, blockSize, blockSize);
+            this.ctx.fillStyle = '#f00';
+            this.ctx.font = `${blockSize * 0.8}px sans-serif`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('P', x + blockSize / 2, y + blockSize / 2 + (blockSize * 0.1));
+        } else {
+            let color = C.COLORS[value];
+            if (brightness !== 1.0) {
+                color = this.adjustColorBrightness(color, brightness);
+            }
+            this.ctx.fillStyle = color;
+            this.ctx.fillRect(x, y, blockSize, blockSize);
+            this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(x, y, blockSize, blockSize);
+            this.drawSymbol(value, x, y, blockSize);
+        }
+        this.ctx.restore();
+    }
+    
+    
+    drawInventory(board, animationManager, now) {
         const invY = C.OFFY + C.BOARD_HEIGHT + 15;
         const itemSlotWidth = C.BOARD_WIDTH / C.MAX_INVENTORY;
         const itemGap = itemSlotWidth * 0.1;
@@ -373,8 +396,9 @@ export class Renderer {
             this.ctx.strokeRect(bgX, invY, itemSize, itemSize);
         }
         
-        if (board.usedItemAnimation) {
-            const p = Math.min((now - board.usedItemAnimation.startTime) / board.usedItemAnimation.duration, 1.0);
+        if (animationManager.usedItemAnimation) {
+            const anim = animationManager.usedItemAnimation;
+            const p = Math.min((now - anim.startTime) / anim.duration, 1.0);
             const scale = 1 + p * 0.5;
             const alpha = 1 - p;
             const animX = C.OFFX + itemSize / 2 + itemGap / 2;
@@ -387,7 +411,7 @@ export class Renderer {
             this.ctx.font = `${itemSize * 0.6}px sans-serif`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this.ctx.fillText(board.usedItemAnimation.item, 0, 0);
+            this.ctx.fillText(anim.item, 0, 0);
             this.ctx.restore();
         }
 
@@ -396,8 +420,10 @@ export class Renderer {
             const endX = C.OFFX + i * itemSlotWidth + itemGap / 2;
             let currentX = endX;
 
-            if (board.inventorySlideAnimation) {
-                const p = Math.min((now - board.inventorySlideAnimation.startTime) / board.inventorySlideAnimation.duration, 1.0);
+            // ▼▼▼ 修正点：参照先を animationManager に変更 ▼▼▼
+            if (animationManager.inventorySlideAnimation) {
+                const anim = animationManager.inventorySlideAnimation;
+                const p = Math.min((now - anim.startTime) / anim.duration, 1.0);
                 currentX = startX - (startX - endX) * Utils.easeInOutCubic(p);
             }
             
@@ -409,8 +435,8 @@ export class Renderer {
         }
     }
 
-    drawHardDropBlur(board, now) {
-        const blur = board.hardDropBlur;
+    drawHardDropBlur(hardDropBlur, now) {
+        const blur = hardDropBlur;
         if (!blur) return;
         const elapsedTime = now - blur.startTime;
         const duration = 150;
@@ -434,6 +460,7 @@ export class Renderer {
         this.ctx.restore();
     }
     
+    // ▼▼▼ このメソッドを全面的に修正 ▼▼▼
     drawPlayer2View(board, now) {
         if (!board) return;
         

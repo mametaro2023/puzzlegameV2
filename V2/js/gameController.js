@@ -1,8 +1,6 @@
 import { Board } from './board.js';
 import { Renderer } from './renderer.js';
 import { InputHandler } from './inputHandler.js';
-import { AnimationManager } from './animationManager.js'; // AnimationManagerをインポート
-
 
 export class GameController {
     constructor(canvas, ctx) {
@@ -11,7 +9,6 @@ export class GameController {
         
         this.renderer = new Renderer(canvas, ctx);
         this.inputHandler = new InputHandler(this);
-        this.animationManager = new AnimationManager();
         
         this.player1Board = new Board(true);
         this.player2Board = new Board(false);
@@ -30,18 +27,16 @@ export class GameController {
         this.statusText = document.getElementById('status-text');
         this.statusOverlay = document.getElementById('status-overlay');
         
+        // イベントリスナーとコールバックを設定
         this.setupLobbyEvents();
         this.setupSocketEvents();
         this.player1Board.onGaugeMax(() => {
             this.socket.emit('gaugeAttack');
-            this.animationManager.setGaugeAttackAnimation(
-                this.player1Board.displayGauge,
-                this.player1Board.gauge
-            );
         });
 
-        this.renderer.draw(this.player1Board, this.player2Board, this.animationManager);
-    }       
+        // 初回の背景描画
+        this.renderer.draw(this.player1Board, this.player2Board);
+    }        
 
     setupLobbyEvents() {
         this.playButton.addEventListener('click', () => {
@@ -120,6 +115,8 @@ export class GameController {
         this.isRunning = true;
     }
 
+    // ▼▼▼ 不要になった 'start' メソッドを削除 ▼▼▼
+    // start() { ... }
 
     gameOver() {
         this.isRunning = false;
@@ -129,63 +126,25 @@ export class GameController {
 
     loop() {
         if (!this.isRunning) return;
-        const now = performance.now();
-        const deltaTime = (now - this.lastTime) / 1000;
-        this.lastTime = now;
+        
+        const currentTime = performance.now();
+        const deltaTime = (currentTime - this.lastTime) / 1000;
+        this.lastTime = currentTime;
 
-        this.animationManager.update(now);
         this.player1Board.update(deltaTime);
-        this.syncAnimations();
-
+        
         if (this.socket.connected) {
-            const boardData = { /* ... */ };
+             // ▼▼▼ 送信するデータも安全のためコピーを渡すようにする ▼▼▼
+             const boardData = {
+                grid: JSON.parse(JSON.stringify(this.player1Board.grid)),
+                lockGrid: JSON.parse(JSON.stringify(this.player1Board.lockGrid)),
+                cur: this.player1Board.cur ? JSON.parse(JSON.stringify(this.player1Board.cur)) : null,
+            };
             this.socket.emit('boardUpdate', boardData);
         }
 
-        this.renderer.draw(this.player1Board, this.player2Board, this.animationManager);
+        this.renderer.draw(this.player1Board, this.player2Board);
         this.animationFrameId = requestAnimationFrame(() => this.loop());
-    }
-
-    syncAnimations() {
-        // AnimationManagerで計算された表示用のゲージ値を、Boardのプロパティに反映
-        if (this.animationManager.gaugeAnimation) {
-            this.player1Board.displayGauge = this.animationManager.gaugeAnimation.currentValue;
-        }
-
-        // 時間が経過した一時的なエフェクトをクリアする
-        const now = performance.now();
-        if (this.animationManager.hardDropBlur && now - this.animationManager.hardDropBlur.startTime > 150) {
-            this.animationManager.hardDropBlur = null;
-        }
-        if (this.animationManager.screenShake && now - this.animationManager.screenShake.startTime > this.animationManager.screenShake.duration) {
-            this.animationManager.screenShake = null;
-        }
-        if (this.animationManager.attackEffect && now - this.animationManager.attackEffect.startTime > this.animationManager.attackEffect.duration) {
-            this.animationManager.attackEffect = null;
-        }
-        if (this.animationManager.usedItemAnimation && now - this.animationManager.usedItemAnimation.startTime > this.animationManager.usedItemAnimation.duration) {
-            this.animationManager.usedItemAnimation = null;
-        }
-        if (this.animationManager.inventorySlideAnimation && now - this.animationManager.inventorySlideAnimation.startTime > this.animationManager.inventorySlideAnimation.duration) {
-            this.animationManager.inventorySlideAnimation = null;
-        }
-    }
-
-    handleAnimationInfo(info) {
-        if (!info) return;
-
-        switch (info.type) {
-            case 'shake':
-                this.animationManager.triggerScreenShake(info.magnitude, info.duration);
-                break;
-            case 'gaugeSet':
-                this.animationManager.setGauge(this.player1Board.displayGauge, info.value);
-                break;
-            case 'gaugeReset':
-                this.animationManager.setGaugeReset(this.player1Board.displayGauge);
-                break;
-            // 今後、'flip'や'x-fall'などの新しいアニメーションタイプを追加できる
-        }
     }
 
     movePiece(dx) {
@@ -197,46 +156,19 @@ export class GameController {
     }
 
     hardDrop() {
-        const result = this.player1Board.hardDrop();
-        if (result) {
-            this.animationManager.triggerHardDropBlur(result.fromY, result.toY, result.x, result.cells);
-            this.handleLockResult(result.lockResult);
-        }
-    }
-
-    lockPiece() {
-        const lockResult = this.player1Board.lockPiece();
-        this.handleLockResult(lockResult);
-    }
-
-    handleLockResult(lockResult) {
-        if (!lockResult) return;
-
-        // 消えたブロックのパーティクルを生成
-        if (lockResult.clearedBlocks.length > 0) {
-            lockResult.clearedBlocks.forEach(b => {
-                this.animationManager.createParticles(b.r, b.c, b.value);
-            });
-        }
-        // 落下するブロックのアニメーションをセット
-        if (lockResult.fallingBlocks.length > 0) {
-            this.animationManager.fallingBlocks = lockResult.fallingBlocks;
-            // 落下アニメーションが終わった後に、再度消去チェックを行う
-            setTimeout(() => this.handleLockResult(this.player1Board.startClear()), 350);
-        }
+        this.player1Board.hardDrop();
     }
 
     useItem(target) {
-        if (this.player1Board.inventory.length === 0 || !this.isRunning) return;
-        
-        const itemToUse = this.player1Board.inventory[0]; // 先に名前を取得
-        this.animationManager.triggerItemUse(itemToUse); // アニメーションを開始
-        this.player1Board.inventory.shift(); // Boardのインベントリから削除
+        if (this.player1Board.inventory.length === 0 || !this.isRunning) {
+            return;
+        }
+        const itemToUse = this.player1Board.inventory[0];
+        this.player1Board.triggerItemUseAnimation();
 
         if (target === 'self') {
             console.log(`Using item on self: ${itemToUse}`);
-            const animInfo = this.player1Board.applyItemEffect(itemToUse);
-            this.handleAnimationInfo(animInfo);
+            this.player1Board.applyItemEffect(itemToUse);
         } else {
             console.log(`Sending item to opponent: ${itemToUse}`);
             this.socket.emit('sendItem', { itemName: itemToUse });
