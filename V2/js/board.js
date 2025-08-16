@@ -5,6 +5,7 @@ import * as Collisions from './board/collisions.js';
 import * as GridShift from './board/gridShift.js';
 import * as Gauge from './board/gauge.js';
 import * as Effects from './board/effects.js';
+import * as Anim from './board/animations.js';
 
 let minoIdCounter = 0; // ミノのユニークIDを生成するためのカウンター
 
@@ -436,76 +437,13 @@ export class Board {
     // 攻撃を受けた時のエフェクトをトリガーする
     triggerAttackEffect() { return Effects.triggerAttackEffect.call(this); }    
 
-    createParticles(x, y, colorIndex) {
-        const count = 10;
-        const color = C.COLORS[colorIndex];
-        for (let i = 0; i < count; i++) {
-            this.particles.push({
-                x: C.OFFX + x * C.BLOCK + C.BLOCK / 2,
-                y: C.OFFY + (y - C.HIDDEN_ROWS_TOP) * C.BLOCK + C.BLOCK / 2,
-                vx: (Math.random() - 0.5) * 5,
-                vy: (Math.random() - 1.0) * 5, // 少し上向きに飛び散るように調整
-                lifetime: Math.random() * 50 + 20,
-                color: color,
-                size: Math.random() * 3 + 2
-            });
-        }
-    }
+    createParticles(x, y, colorIndex) { return Anim.createParticles.call(this, x, y, colorIndex); }
 
-    triggerFallAnimation() {
-        const blocksToAnimate = [];
-        for (let c = 0; c < C.COLS; c++) {
-            let fallDist = 0;
-            for (let r = C.TOTAL_ROWS - 1; r >= 0; r--) {
-                if (this.grid[r][c] === 0) { fallDist++; }
-                else if (fallDist > 0) {
-                    blocksToAnimate.push({ fromR: r, toR: r + fallDist, col: c, value: this.grid[r][c], isLocked: this.lockGrid[r][c] });
-                }
-            }
-        }
-        if (blocksToAnimate.length === 0) {
-            // ▼▼▼ 落下するブロックがなく、ここで連鎖が終了した場合 ▼▼▼
-            this.gainItem();
-            
-            this.clearPhase = false; 
-            this.combo = 0; 
-            setTimeout(() => this.spawn(), C.SPAWN_DELAY); 
-            return;
-        }
-        for (const block of blocksToAnimate) {
-            this.grid[block.fromR][block.col] = 0; this.lockGrid[block.fromR][block.col] = false;
-        }
-        this.fallingBlocks = blocksToAnimate.map(b => ({ ...b, animStartTime: performance.now(), easing: 'easeOutBounce' }));
-    }
+    triggerFallAnimation() { return Anim.triggerFallAnimation.call(this); }
 
-    triggerFlipAnimation() {
-        this.clearPhase = true; this.fallingBlocks = []; const now = performance.now();
-        for (let c = 0; c < C.COLS; c++) {
-            const existingBlocks = [];
-            for (let r = 0; r < C.TOTAL_ROWS; r++) {
-                if (this.grid[r][c] > 0) existingBlocks.push({ r: r, value: this.grid[r][c], isLocked: this.lockGrid[r][c] });
-            }
-            if (existingBlocks.length === 0) continue;
-            const reversedBlocks = [...existingBlocks].reverse();
-            for (let i = 0; i < existingBlocks.length; i++) {
-                const fromBlock = existingBlocks[i]; const toBlock = reversedBlocks[i];
-                this.fallingBlocks.push({ fromR: fromBlock.r, toR: toBlock.r, col: c, value: fromBlock.value, isLocked: fromBlock.isLocked, animStartTime: now, easing: 'easeOutCubic' });
-            }
-        }
-        this.grid = Array.from({ length: C.TOTAL_ROWS }, () => Array(C.COLS).fill(0));
-        this.lockGrid = Array.from({ length: C.TOTAL_ROWS }, () => Array(C.COLS).fill(false));
-    }
+    triggerFlipAnimation() { return Anim.triggerFlipAnimation.call(this); }
 
-    triggerXBlockFall() {
-        this.clearPhase = true; this.droppingXBlocks = []; const newRow = [];
-        for (let c = 0; c < C.COLS; c++) newRow.push({ col: c, value: Math.floor(Math.random() * 5) + 1 });
-        for (const block of newRow) {
-            let toR = C.TOTAL_ROWS - 1;
-            for (let r = 0; r < C.TOTAL_ROWS; r++) { if (this.grid[r][block.col] > 0 || this.lockGrid[r][block.col]) { toR = r - 1; break; }}
-            if (toR < 0) continue;
-            this.droppingXBlocks.push({ fromR: -1, toR: toR, col: block.col, value: block.value, animStartTime: performance.now() });
-        }
-    }
+    triggerXBlockFall() { return Anim.triggerXBlockFall.call(this); }
 
     gainItem() {
         if (this.inventory.length >= C.MAX_INVENTORY || this.combo === 0) {
@@ -570,43 +508,9 @@ export class Board {
         }
     }
 */
-    updateFallingBlocks(now) {
-        const remainingBlocks = [];
-        this.fallingBlocks.forEach(b => {
-            if (now - b.animStartTime >= C.FALL_ANIM_DURATION) {
-                this.grid[b.toR][b.col] = b.value;
-                this.lockGrid[b.toR][b.col] = b.isLocked;
-            } else {
-                remainingBlocks.push(b);
-            }
-        });
-        this.fallingBlocks = remainingBlocks;
-        if (this.fallingBlocks.length === 0) {
-            if (this.isFlipAnimating) {
-                this.isFlipAnimating = false;
-                this.clearPhase = false;
-            } else {
-                setTimeout(() => this.startClear(), C.DROP_ANIM_DELAY);
-            }
-        }
-    }
+    updateFallingBlocks(now) { return Anim.updateFallingBlocks.call(this, now); }
 
-    updateDroppingXBlocks(now) {
-        let allLanded = true;
-        this.droppingXBlocks.forEach(b => {
-            if (now - b.animStartTime < C.FALL_ANIM_DURATION) allLanded = false;
-        });
-        if (allLanded) {
-            this.droppingXBlocks.forEach(b => {
-                if (b.toR >= 0) {
-                    this.grid[b.toR][b.col] = b.value;
-                    this.lockGrid[b.toR][b.col] = true;
-                }
-            });
-            this.droppingXBlocks = [];
-            this.clearPhase = false;
-        }
-    }
+    updateDroppingXBlocks(now) { return Anim.updateDroppingXBlocks.call(this, now); }
     
     gameOver() {
         this.gameOverCallback();
