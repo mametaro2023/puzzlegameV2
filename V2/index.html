@@ -55,7 +55,16 @@
 </div>
 
 <div id="status-overlay" style="position: absolute; top: 10px; left: 10px; color: white; font-size: 24px; font-family: sans-serif; display: none;">
-    <p id="status-text">マッチング相手を探しています...</p>
+    <p id="status-text">準備中...</p>
+    <div id="pre-game-controls">
+        <button id="btn-start" class="hidden">ゲーム開始</button>
+        <button id="btn-leave" class="">退出</button>
+    </div>
+</div>
+
+<div id="result-overlay" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 28px; font-family: sans-serif; display: none; text-align: center;">
+    <p id="result-text"></p>
+    <button id="btn-close-result">OK</button>
 </div>
 
 <script type="module" src="js/main.js"></script>

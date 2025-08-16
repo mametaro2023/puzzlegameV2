@@ -29,6 +29,12 @@ export class GameController {
         this.roomInput = document.getElementById('room-input');
         this.statusText = document.getElementById('status-text');
         this.statusOverlay = document.getElementById('status-overlay');
+        this.preGameControls = document.getElementById('pre-game-controls');
+        this.btnStart = document.getElementById('btn-start');
+        this.btnLeave = document.getElementById('btn-leave');
+        this.resultOverlay = document.getElementById('result-overlay');
+        this.resultText = document.getElementById('result-text');
+        this.btnCloseResult = document.getElementById('btn-close-result');
         
         // イベントリスナーとコールバックを設定
         this.setupLobbyEvents();
@@ -60,8 +66,10 @@ export class GameController {
             if (roomName) {
                 if (!this.socket.connected) this.socket.connect();
                 this.socket.emit('joinRoom', roomName);
-                this.lobbyOverlay.classList.add('hidden');
-                this.startPractice();
+                this.titleScreen.classList.add('hidden');
+                this.roomScreen.classList.add('hidden');
+                this.statusOverlay.style.display = 'block';
+                this.statusText.textContent = '準備中...';
             }
         });
 
@@ -69,22 +77,43 @@ export class GameController {
             if (!this.socket.connected) this.socket.connect();
             this.socket.emit('getRooms');
         });
+
+        this.btnStart.addEventListener('click', () => {
+            this.socket.emit('hostStartGame');
+        });
+
+        this.btnLeave.addEventListener('click', () => {
+            this.socket.emit('leaveRoom');
+            // UIリセットしてロビーへ
+            this.resetToLobby();
+        });
+
+        this.btnCloseResult.addEventListener('click', () => {
+            this.resultOverlay.style.display = 'none';
+            this.statusOverlay.style.display = 'block';
+        });
     }  
 
     setupSocketEvents() {
-        this.socket.on('waiting', () => {
+        this.socket.on('roomReady', (data) => {
+            // 準備状態: ボタン表示（ホストのみ開始ボタン可視）
+            this.lobbyOverlay.classList.add('hidden');
             this.statusOverlay.style.display = 'block';
-            this.statusText.textContent = 'マッチング相手を探しています...';
+            const isHost = this.socket.id === data.hostId;
+            this.btnStart.classList.toggle('hidden', !isHost);
+            this.preGameControls.style.display = 'block';
+            this.statusText.textContent = data.members.length < 2 ? '相手を待っています...' : '開始できます';
+            // ゲームループは開始しない
         });
 
         this.socket.on('gameStart', (data) => {
-            console.log(`Match found in room: ${data.roomName}.`);
             this.statusOverlay.style.display = 'none';
+            this.preGameControls.style.display = 'none';
             this.startMatch(); 
+            // ゲーム中は退出/開始ボタンは非表示
         });
 
         this.socket.on('opponentUpdate', (opponentData) => {
-            // JSONを介してデータの完全なコピー（ディープコピー）を作成する
             this.player2Board.grid = JSON.parse(JSON.stringify(opponentData.grid));
             this.player2Board.lockGrid = JSON.parse(JSON.stringify(opponentData.lockGrid));
             this.player2Board.cur = opponentData.cur ? JSON.parse(JSON.stringify(opponentData.cur)) : null;
@@ -92,25 +121,21 @@ export class GameController {
         
         this.socket.on('opponentDisconnect', () => {
             this.statusOverlay.style.display = 'block';
-            this.statusText.textContent = '相手が切断しました。マッチングを待っています...';
-            // 相手ボードをリセット
+            this.preGameControls.style.display = 'block';
+            this.statusText.textContent = '相手が離脱しました。準備中...';
             this.player2Board.init();
         });
 
         this.socket.on('receiveItem', (data) => {
-            console.log(`Received item from opponent: ${data.itemName}`);
             this.player1Board.applyItemEffect(data.itemName);
         });
 
         this.socket.on('receiveAttack', () => {
-            console.log("Received gauge attack from opponent!");
             this.player1Board.riseGrid(1);
             this.player1Board.triggerAttackEffect();
         });        
 
-        // ルーム一覧受信
         this.socket.on('roomsList', (rooms) => {
-            // rooms: [{ name, count }]
             this.roomList.innerHTML = '';
             if (!rooms || rooms.length === 0) {
                 const p = document.createElement('p');
@@ -125,12 +150,36 @@ export class GameController {
                 btn.style.margin = '6px';
                 btn.addEventListener('click', () => {
                     this.socket.emit('joinRoom', r.name);
-                    this.lobbyOverlay.classList.add('hidden');
-                    this.startPractice();
+                    document.getElementById('room-list-screen').classList.add('hidden');
+                    this.statusOverlay.style.display = 'block';
+                    this.statusText.textContent = '準備中...';
                 });
                 this.roomList.appendChild(btn);
             });
         });
+
+        this.socket.on('gameOver', ({ winnerId, loserId }) => {
+            const isWinner = this.socket.id === winnerId;
+            this.isRunning = false;
+            this.resultText.textContent = isWinner ? 'You Win!' : 'You Lose...';
+            this.resultOverlay.style.display = 'block';
+            // 次の開始まで準備状態に戻る（サーバ側からroomReadyが届く）
+        });
+    }
+
+    resetToLobby() {
+        // 画面戻し
+        this.lobbyOverlay.classList.remove('hidden');
+        this.titleScreen.classList.remove('hidden');
+        this.roomScreen.classList.add('hidden');
+        document.getElementById('room-list-screen').classList.add('hidden');
+        this.statusOverlay.style.display = 'none';
+        this.preGameControls.style.display = 'none';
+        this.resultOverlay.style.display = 'none';
+        // ゲーム停止
+        this.isRunning = false;
+        this.player1Board.init();
+        this.player2Board.init();
     }
 
     startPractice() {

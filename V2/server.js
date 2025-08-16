@@ -9,89 +9,131 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = 3000;
-const rooms = {}; // 存在する部屋と参加者を管理するオブジェクト
+// rooms: { [roomName]: { members: string[], host: string, inGame: boolean } }
+const rooms = {};
 
 io.on('connection', (socket) => {
     console.log('a user connected:', socket.id);
 
-    // プレイヤーが部屋への参加を要求してきたときの処理
+    const broadcastRoomReady = (roomName) => {
+        const room = rooms[roomName];
+        if (!room) return;
+        io.to(roomName).emit('roomReady', { roomName, hostId: room.host, members: room.members });
+    };
+
     socket.on('joinRoom', (roomName) => {
-        // --- 1. 部屋に参加する ---
         socket.join(roomName);
-        socket.room = roomName; // 後で使うためにsocketオブジェクトに部屋名を保存
+        socket.room = roomName;
 
-        // --- 2. 部屋の参加人数を管理する ---
         if (!rooms[roomName]) {
-            // 新しい部屋の場合
-            rooms[roomName] = [];
+            rooms[roomName] = { members: [], host: socket.id, inGame: false };
         }
-        rooms[roomName].push(socket.id);
-
-        // --- 3. 部屋の状態に応じてイベントを送信 ---
-        const playersInRoom = rooms[roomName];
-        if (playersInRoom.length === 1) {
-            // 1人目のプレイヤー：待機状態にする
-            io.to(socket.id).emit('waiting');
-            console.log(`Room '${roomName}' created. Player 1 (${socket.id}) is waiting.`);
-        } else if (playersInRoom.length === 2) {
-            // 2人目のプレイヤー：部屋の全員にゲーム開始を通知
-            console.log(`Player 2 (${socket.id}) joined Room '${roomName}'. Starting game.`);
-            io.to(roomName).emit('gameStart', { roomName: roomName });
-        } else {
-            // 3人目以降：観戦者モード（今回は何もしない）
-            console.log(`Spectator (${socket.id}) tried to join Room '${roomName}'.`);
-            // ここで「部屋は満員です」というイベントを送ることも可能
+        const room = rooms[roomName];
+        if (!room.members.includes(socket.id)) {
+            room.members.push(socket.id);
         }
+        // 新規参加者に現状の状態を返す/部屋全体に準備状態を通知
+        broadcastRoomReady(roomName);
     });
 
-    // ルーム一覧を返す
+    // ルーム一覧を返す（待機中＝メンバー1人、未開始）
     socket.on('getRooms', () => {
         const list = Object.entries(rooms)
-            .filter(([, members]) => Array.isArray(members) && members.length > 0 && members.length < 2) // 待機中の部屋のみ
-            .map(([name, members]) => ({ name, count: members.length }));
+            .filter(([, r]) => Array.isArray(r.members) && r.members.length > 0 && r.members.length < 2 && !r.inGame)
+            .map(([name, r]) => ({ name, count: r.members.length }));
         io.to(socket.id).emit('roomsList', list);
     });
 
-    // 盤面データの中継処理を、部屋の中の相手にだけ送るように修正
+    // ホストが開始要求
+    socket.on('hostStartGame', () => {
+        const roomName = socket.room;
+        if (!roomName || !rooms[roomName]) return;
+        const room = rooms[roomName];
+        if (room.host !== socket.id) return; // ホストのみ
+        if (room.members.length < 2) return; // 2人揃っていない
+        room.inGame = true;
+        io.to(roomName).emit('gameStart', { roomName });
+    });
+
+    // クライアントからのボード同期（ゲーム中のみ中継）
     socket.on('boardUpdate', (data) => {
         if (socket.room) {
             socket.broadcast.to(socket.room).emit('opponentUpdate', data);
         }
     });
 
-    // アイテムを相手に送るイベント
+    // アイテム送付
     socket.on('sendItem', (data) => {
         if (socket.room) {
-            // イベントを受け取ったプレイヤー以外（つまり相手）にアイテム情報を転送
             socket.broadcast.to(socket.room).emit('receiveItem', { itemName: data.itemName });
             console.log(`Player ${socket.id} sent item '${data.itemName}' to room '${socket.room}'`);
         }
     });
     
-    // ゲージMAX攻撃を相手に送るイベント
+    // ゲージ攻撃
     socket.on('gaugeAttack', () => {
         if (socket.room) {
-            // 相手に攻撃イベントを転送
             socket.broadcast.to(socket.room).emit('receiveAttack');
             console.log(`Player ${socket.id} sent a gauge attack to room '${socket.room}'`);
         }
     });    
 
-    // 切断時の処理
+    // プレイヤーが任意に部屋を離れる
+    socket.on('leaveRoom', () => {
+        const roomName = socket.room;
+        if (!roomName || !rooms[roomName]) return;
+        const room = rooms[roomName];
+        room.members = room.members.filter(id => id !== socket.id);
+        socket.leave(roomName);
+        socket.room = null;
+        // 相手に離脱を通知
+        io.to(roomName).emit('opponentDisconnect');
+        // ホストがいなければ再割当
+        if (room.host === socket.id) {
+            room.host = room.members[0] || null;
+        }
+        // 空になったら削除
+        if (room.members.length === 0) {
+            delete rooms[roomName];
+        } else {
+            room.inGame = false;
+            broadcastRoomReady(roomName);
+        }
+    });
+
+    // ゲームオーバー通知（どちらかが負けた）
+    socket.on('gameOver', () => {
+        const roomName = socket.room;
+        if (!roomName || !rooms[roomName]) return;
+        const room = rooms[roomName];
+        const winnerId = room.members.find(id => id !== socket.id) || null;
+        io.to(roomName).emit('gameOver', { winnerId, loserId: socket.id });
+        room.inGame = false;
+        // 準備状態へ
+        broadcastRoomReady(roomName);
+    });
+
     socket.on('disconnect', () => {
         console.log('user disconnected:', socket.id);
         if (socket.room) {
             const roomName = socket.room;
-            // 相手に切断を通知
-            socket.to(roomName).emit('opponentDisconnect');
-            
-            // 部屋の管理オブジェクトから切断したプレイヤーを削除
-            if (rooms[roomName]) {
-                rooms[roomName] = rooms[roomName].filter(id => id !== socket.id);
-                // 部屋が空になったら削除
-                if (rooms[roomName].length === 0) {
+            const room = rooms[roomName];
+            if (room) {
+                // 相手に切断を通知
+                socket.to(roomName).emit('opponentDisconnect');
+                // メンバーから削除
+                room.members = room.members.filter(id => id !== socket.id);
+                // ホストなら再割当
+                if (room.host === socket.id) {
+                    room.host = room.members[0] || null;
+                }
+                // 空なら削除
+                if (room.members.length === 0) {
                     delete rooms[roomName];
                     console.log(`Room '${roomName}' is now empty and closed.`);
+                } else {
+                    room.inGame = false;
+                    broadcastRoomReady(roomName);
                 }
             }
         }
