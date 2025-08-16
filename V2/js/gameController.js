@@ -33,6 +33,7 @@ export class GameController {
         this.player1Board.onGaugeMax(() => {
             this.socket.emit('gaugeAttack');
         });
+        this.player1Board.onGameOver(this.gameOver.bind(this));
 
         // 初回の背景描画
         this.renderer.draw(this.player1Board, this.player2Board);

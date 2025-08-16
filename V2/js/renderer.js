@@ -88,15 +88,18 @@ export class Renderer {
     }
 
     drawBoardState(board) {
-        for (let r = 0; r < C.ROWS; r++) {
+        // draw only visible rows
+        const rowStart = C.HIDDEN_ROWS_TOP;
+        const rowEnd = C.HIDDEN_ROWS_TOP + C.ROWS;
+        for (let r = rowStart; r < rowEnd; r++) {
             for (let c = 0; c < C.COLS; c++) {
                 const v = board.grid[r][c];
                 if (v) {
                     const x = C.OFFX + c * C.BLOCK;
-                    const y = C.OFFY + r * C.BLOCK;
+                    const y = C.OFFY + (r - C.HIDDEN_ROWS_TOP) * C.BLOCK;
                     this.ctx.save();
                     if (board.lockGrid[r][c]) { this.ctx.globalAlpha = 0.5; }
-                    this.drawBlock(v, x, y, C.BLOCK); // 通常サイズを渡す
+                    this.drawBlock(v, x, y, C.BLOCK);
                     this.ctx.restore();
                     if (board.lockGrid[r][c]) { this.drawLockedEffect(x, y); }
                 }
@@ -109,19 +112,26 @@ export class Renderer {
         for (let i = 0; i < 3; i++) {
             const x = C.OFFX + board.cur.x * C.BLOCK;
             const y = C.OFFY + (board.cur.y + i) * C.BLOCK;
-            this.drawBlock(board.cur.cells[i], x, y, C.BLOCK); // 通常サイズを渡す
+            if (board.cur.y + i >= 0) {
+                this.drawBlock(board.cur.cells[i], x, y, C.BLOCK);
+            }
         }
     }
 
     drawGhostPiece(board) {
         if (!board.cur) return;
         let ghostY = Math.floor(board.cur.y);
+        // avoid infinite loop when board is filled to the top of hidden rows
+        if (board.collide(board.cur.x, ghostY)) return;
         while (!board.collide(board.cur.x, ghostY + 1)) {
             ghostY++;
+            if (ghostY > C.ROWS + C.HIDDEN_ROWS_TOP) break;
         }
         this.ctx.globalAlpha = 0.3;
         for (let i = 0; i < 3; i++) {
-            this.drawBlock(board.cur.cells[i], C.OFFX + board.cur.x * C.BLOCK, C.OFFY + (ghostY + i) * C.BLOCK, C.BLOCK); // 通常サイズを渡す
+            if (ghostY + i >= 0) {
+                this.drawBlock(board.cur.cells[i], C.OFFX + board.cur.x * C.BLOCK, C.OFFY + (ghostY + i) * C.BLOCK, C.BLOCK);
+            }
         }
         this.ctx.globalAlpha = 1.0;
     }
@@ -208,7 +218,9 @@ export class Renderer {
         board.fallingBlocks.forEach(b => {
             const progress = Math.min((now - b.animStartTime) / C.FALL_ANIM_DURATION, 1.0);
             const eased = b.easing === 'easeOutBounce' ? Utils.easeOutBounce(progress) : Utils.easeOutCubic(progress);
-            const y = (C.OFFY + b.fromR * C.BLOCK) + ((C.OFFY + b.toR * C.BLOCK) - (C.OFFY + b.fromR * C.BLOCK)) * eased;
+            const fromY = C.OFFY + (b.fromR - C.HIDDEN_ROWS_TOP) * C.BLOCK;
+            const toY = C.OFFY + (b.toR - C.HIDDEN_ROWS_TOP) * C.BLOCK;
+            const y = fromY + (toY - fromY) * eased;
             const x = C.OFFX + b.col * C.BLOCK;
             this.ctx.save();
             if (b.isLocked) { this.ctx.globalAlpha = 0.5; }
@@ -222,7 +234,9 @@ export class Renderer {
         if (board.droppingXBlocks.length === 0) return;
         board.droppingXBlocks.forEach(b => {
             const progress = Math.min((now - b.animStartTime) / C.FALL_ANIM_DURATION, 1.0);
-            const y = (C.OFFY + b.fromR * C.BLOCK) + ((C.OFFY + b.toR * C.BLOCK) - (C.OFFY + b.fromR * C.BLOCK)) * Utils.easeOutBounce(progress);
+            const fromY = C.OFFY + (b.fromR - C.HIDDEN_ROWS_TOP) * C.BLOCK;
+            const toY = C.OFFY + (b.toR - C.HIDDEN_ROWS_TOP) * C.BLOCK;
+            const y = fromY + (toY - fromY) * Utils.easeOutBounce(progress);
             const x = C.OFFX + b.col * C.BLOCK;
             this.ctx.save();
             this.ctx.globalAlpha = 0.5;
@@ -280,12 +294,12 @@ export class Renderer {
         // --- Gauge ---
         const gaugeHeight = C.BOARD_HEIGHT;
         this.ctx.fillStyle = '#555';
-        this.ctx.fillRect(C.GAUGE_X, C.OFFY, 40, gaugeHeight);
+        this.ctx.fillRect(C.GAUGE_X, C.OFFY, C.BLOCK * 0.8, gaugeHeight);
         const fillH = gaugeHeight * (board.displayGauge / 100);
         this.ctx.fillStyle = '#f00';
-        this.ctx.fillRect(C.GAUGE_X, C.OFFY + (gaugeHeight - fillH), 40, fillH);
+        this.ctx.fillRect(C.GAUGE_X, C.OFFY + (gaugeHeight - fillH), C.BLOCK * 0.8, fillH);
         this.ctx.strokeStyle = '#fff';
-        this.ctx.strokeRect(C.GAUGE_X, C.OFFY, 40, gaugeHeight);
+        this.ctx.strokeRect(C.GAUGE_X, C.OFFY, C.BLOCK * 0.8, gaugeHeight);
         
         // --- Inventory ---
         this.drawInventory(board, now);
@@ -452,20 +466,22 @@ export class Renderer {
         this.ctx.strokeRect(0, 0, p2BoardWidth, p2BoardHeight);
         
         // 固定ブロック
-        for (let r = 0; r < C.ROWS; r++) {
+        const rowStart = C.HIDDEN_ROWS_TOP;
+        const rowEnd = C.HIDDEN_ROWS_TOP + C.ROWS;
+        for (let r = rowStart; r < rowEnd; r++) {
             for (let c = 0; c < C.COLS; c++) {
                 const v = board.grid[r][c];
                 if (v) {
-                    // P2用に計算した小さいブロックサイズを渡す
-                    this.drawBlock(v, c * p2BlockSize, r * p2BlockSize, p2BlockSize);
+                    this.drawBlock(v, c * p2BlockSize, (r - C.HIDDEN_ROWS_TOP) * p2BlockSize, p2BlockSize);
                 }
             }
         }
         // 操作中ブロック
         if (board.cur) {
             for (let i = 0; i < 3; i++) {
-                // P2用に計算した小さいブロックサイズを渡す
-                this.drawBlock(board.cur.cells[i], board.cur.x * p2BlockSize, (board.cur.y + i) * p2BlockSize, p2BlockSize);
+                if (board.cur.y + i >= 0) {
+                    this.drawBlock(board.cur.cells[i], board.cur.x * p2BlockSize, (board.cur.y + i) * p2BlockSize, p2BlockSize);
+                }
             }
         }
         this.ctx.restore();

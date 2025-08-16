@@ -8,6 +8,8 @@ export const CH = 900;
 // --- グリッド設定 ---
 export const COLS = 8;
 export const ROWS = 15;
+export const HIDDEN_ROWS_TOP = 6;
+export const TOTAL_ROWS = ROWS + HIDDEN_ROWS_TOP;
 
 // --- レイアウトの主要な間隔（ギャップ）設定 ---
 const TOP_BOTTOM_PADDING = 30; // 画面の上下の合計余白

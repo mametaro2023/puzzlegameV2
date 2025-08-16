@@ -9,8 +9,8 @@ export class Board {
         this.isPlayerOne = isPlayerOne; // プレイヤー1かどうか（将来の拡張用）
         this.aiMoveTimer = 0;
         this.aiMoveInterval = 2; // AIが何秒ごとに操作するか
-        this.grid = Array.from({ length: C.ROWS }, () => Array(C.COLS).fill(0));
-        this.lockGrid = Array.from({ length: C.ROWS }, () => Array(C.COLS).fill(false));
+        this.grid = Array.from({ length: C.TOTAL_ROWS }, () => Array(C.COLS).fill(0));
+        this.lockGrid = Array.from({ length: C.TOTAL_ROWS }, () => Array(C.COLS).fill(false));
         
         this.cur = null;
         this.nextQueue = [];
@@ -57,8 +57,8 @@ export class Board {
     }    
 
     init() {
-        this.grid.forEach(row => row.fill(0));
-        this.lockGrid.forEach(row => row.fill(false));
+        this.grid = Array.from({ length: C.TOTAL_ROWS }, () => Array(C.COLS).fill(0));
+        this.lockGrid = Array.from({ length: C.TOTAL_ROWS }, () => Array(C.COLS).fill(false));
         this.nextQueue = [];
         this.inventory = ['+S'];
         this.gauge = 0;
@@ -173,7 +173,10 @@ export class Board {
         for (let i = 0; i < 3; i++) {
             const r1 = Math.floor(this.cur.y + i);
             const r2 = Math.floor(this.cur.y + i + 0.999);
-            if ((r1 >= 0 && this.grid[r1][nx] > 0) || (r2 !== r1 && r2 >= 0 && r2 < C.ROWS && this.grid[r2][nx] > 0)) {
+            const gridRow1 = r1 + C.HIDDEN_ROWS_TOP;
+            const gridRow2 = r2 + C.HIDDEN_ROWS_TOP;
+            if ((gridRow1 >= 0 && gridRow1 < C.TOTAL_ROWS && this.grid[gridRow1][nx] > 0) ||
+                (r2 !== r1 && gridRow2 >= 0 && gridRow2 < C.TOTAL_ROWS && this.grid[gridRow2][nx] > 0)) {
                 return;
             }
         }
@@ -362,10 +365,11 @@ export class Board {
     collide(x, y) {
         const baseY = Math.floor(y);
         for (let i = 0; i < 3; i++) {
-            const r = baseY + i;
+            const rRel = baseY + i;
             const c = x;
-            if (r >= C.ROWS) return true;
-            if (r >= 0 && this.grid[r][c] > 0) return true;
+            const gridRow = rRel + C.HIDDEN_ROWS_TOP;
+            if (gridRow >= C.TOTAL_ROWS) return true;
+            if (gridRow >= 0 && gridRow < C.TOTAL_ROWS && this.grid[gridRow][c] > 0) return true;
         }
         return false;
     }
@@ -376,8 +380,9 @@ export class Board {
         for (let i = 0; i < 3; i++) {
             const r = baseY + i;
             const c = this.cur.x;
-            if (r >= 0 && r < C.ROWS) {
-                this.grid[r][c] = this.cur.cells[i];
+            const gridRow = r + C.HIDDEN_ROWS_TOP;
+            if (gridRow >= 0 && gridRow < C.TOTAL_ROWS) {
+                this.grid[gridRow][c] = this.cur.cells[i];
             }
         }
         this.cur = null;
@@ -390,11 +395,11 @@ export class Board {
             const toClear = new Set();
             const pBlocks = [];
             const colorsToClear = new Set();
-            for (let r = 0; r < C.ROWS; r++) {
+            for (let r = 0; r < C.TOTAL_ROWS; r++) {
                 for (let c = 0; c < C.COLS; c++) {
                     if (this.grid[r][c] === C.P_BLOCK_ID) {
                         pBlocks.push({ r, c });
-                        if (r + 1 < C.ROWS && this.grid[r + 1][c] > 0 && this.grid[r + 1][c] !== C.P_BLOCK_ID) {
+                        if (r + 1 < C.TOTAL_ROWS && this.grid[r + 1][c] > 0 && this.grid[r + 1][c] !== C.P_BLOCK_ID) {
                             colorsToClear.add(this.grid[r + 1][c]);
                         }
                     }
@@ -403,13 +408,13 @@ export class Board {
             if (pBlocks.length > 0) {
                 pBlocks.forEach(p => toClear.add(p.r + '_' + p.c));
                 if (colorsToClear.size > 0) {
-                    for (let r = 0; r < C.ROWS; r++) for (let c = 0; c < C.COLS; c++) {
+                    for (let r = 0; r < C.TOTAL_ROWS; r++) for (let c = 0; c < C.COLS; c++) {
                         if (colorsToClear.has(this.grid[r][c])) toClear.add(r + '_' + c);
                     }
                 }
             }
             const dirs = [[1, 0], [0, 1], [1, 1], [1, -1]];
-            for (let r = 0; r < C.ROWS; r++) {
+            for (let r = 0; r < C.TOTAL_ROWS; r++) {
                 for (let c = 0; c < C.COLS; c++) {
                     const v = this.grid[r][c];
                     if (!v || v === C.P_BLOCK_ID || this.lockGrid[r][c]) continue;
@@ -417,7 +422,7 @@ export class Board {
                         let cnt = 1, rr = r, cc = c; const connected = [{ r, c }];
                         while (true) {
                             rr += dr; cc += dc;
-                            if (rr < 0 || rr >= C.ROWS || cc < 0 || cc >= C.COLS || this.grid[rr][cc] !== v || this.lockGrid[rr][cc]) break;
+                            if (rr < 0 || rr >= C.TOTAL_ROWS || cc < 0 || cc >= C.COLS || this.grid[rr][cc] !== v || this.lockGrid[rr][cc]) break;
                             cnt++; connected.push({ r: rr, c: cc });
                         }
                         if (cnt >= 3) connected.forEach(pos => toClear.add(pos.r + '_' + pos.c));
@@ -431,7 +436,7 @@ export class Board {
                     const [r, c] = key.split('_').map(Number);
                     checkDirs.forEach(([dr, dc]) => {
                         const nr = r + dr, nc = c + dc;
-                        if (nr >= 0 && nr < C.ROWS && nc >= 0 && nc < C.COLS && this.lockGrid[nr][nc]) {
+                        if (nr >= 0 && nr < C.TOTAL_ROWS && nc >= 0 && nc < C.COLS && this.lockGrid[nr][nc]) {
                             unlockedPositions.add(nr + '_' + nc);
                         }
                     });
@@ -530,9 +535,8 @@ export class Board {
         const color = C.COLORS[colorIndex];
         for (let i = 0; i < count; i++) {
             this.particles.push({
-                // ▼▼▼ この座標計算を C.OFFX と C.OFFY を使うように修正 ▼▼▼
                 x: C.OFFX + x * C.BLOCK + C.BLOCK / 2,
-                y: C.OFFY + y * C.BLOCK + C.BLOCK / 2,
+                y: C.OFFY + (y - C.HIDDEN_ROWS_TOP) * C.BLOCK + C.BLOCK / 2,
                 vx: (Math.random() - 0.5) * 5,
                 vy: (Math.random() - 1.0) * 5, // 少し上向きに飛び散るように調整
                 lifetime: Math.random() * 50 + 20,
@@ -546,7 +550,7 @@ export class Board {
         const blocksToAnimate = [];
         for (let c = 0; c < C.COLS; c++) {
             let fallDist = 0;
-            for (let r = C.ROWS - 1; r >= 0; r--) {
+            for (let r = C.TOTAL_ROWS - 1; r >= 0; r--) {
                 if (this.grid[r][c] === 0) { fallDist++; }
                 else if (fallDist > 0) {
                     blocksToAnimate.push({ fromR: r, toR: r + fallDist, col: c, value: this.grid[r][c], isLocked: this.lockGrid[r][c] });
@@ -572,7 +576,7 @@ export class Board {
         this.clearPhase = true; this.fallingBlocks = []; const now = performance.now();
         for (let c = 0; c < C.COLS; c++) {
             const existingBlocks = [];
-            for (let r = 0; r < C.ROWS; r++) {
+            for (let r = 0; r < C.TOTAL_ROWS; r++) {
                 if (this.grid[r][c] > 0) existingBlocks.push({ r: r, value: this.grid[r][c], isLocked: this.lockGrid[r][c] });
             }
             if (existingBlocks.length === 0) continue;
@@ -582,16 +586,16 @@ export class Board {
                 this.fallingBlocks.push({ fromR: fromBlock.r, toR: toBlock.r, col: c, value: fromBlock.value, isLocked: fromBlock.isLocked, animStartTime: now, easing: 'easeOutCubic' });
             }
         }
-        this.grid = Array.from({ length: C.ROWS }, () => Array(C.COLS).fill(0));
-        this.lockGrid = Array.from({ length: C.ROWS }, () => Array(C.COLS).fill(false));
+        this.grid = Array.from({ length: C.TOTAL_ROWS }, () => Array(C.COLS).fill(0));
+        this.lockGrid = Array.from({ length: C.TOTAL_ROWS }, () => Array(C.COLS).fill(false));
     }
 
     triggerXBlockFall() {
         this.clearPhase = true; this.droppingXBlocks = []; const newRow = [];
         for (let c = 0; c < C.COLS; c++) newRow.push({ col: c, value: Math.floor(Math.random() * 5) + 1 });
         for (const block of newRow) {
-            let toR = C.ROWS - 1;
-            for (let r = 0; r < C.ROWS; r++) { if (this.grid[r][block.col] > 0 || this.lockGrid[r][block.col]) { toR = r - 1; break; }}
+            let toR = C.TOTAL_ROWS - 1;
+            for (let r = 0; r < C.TOTAL_ROWS; r++) { if (this.grid[r][block.col] > 0 || this.lockGrid[r][block.col]) { toR = r - 1; break; }}
             if (toR < 0) continue;
             this.droppingXBlocks.push({ fromR: -1, toR: toR, col: block.col, value: block.value, animStartTime: performance.now() });
         }
@@ -643,7 +647,7 @@ export class Board {
     }
 
     riseGrid(numRows) {
-        // 1. せり上がることで天井を突き抜けるブロックがないか、先にチェックする
+        // 1. これ以上上に押し上げられない場合を先にチェック（隠し行も含めて）
         for (let r = 0; r < numRows; r++) {
             if (this.grid[r].some(cell => cell > 0)) {
                 this.gameOver();
@@ -651,19 +655,18 @@ export class Board {
             }
         }
 
-        // 2. 安全なら、実際にブロックを上にずらす
-        for (let r = 0; r < C.ROWS - numRows; r++) {
+        // 2. 安全なら、実際にブロックを上にずらす（全行）
+        for (let r = 0; r < C.TOTAL_ROWS - numRows; r++) {
             this.grid[r] = this.grid[r + numRows];
             this.lockGrid[r] = this.lockGrid[r + numRows];
         }
 
         // 3. 下に新しい行を生成する
-        for (let r = C.ROWS - numRows; r < C.ROWS; r++) {
+        for (let r = C.TOTAL_ROWS - numRows; r < C.TOTAL_ROWS; r++) {
             const newGridRow = [];
             const newLockRow = [];
             for (let c = 0; c < C.COLS; c++) {
                 newGridRow.push(Math.floor(Math.random() * 5) + 1);
-                // ▼▼▼ この行の確率を 0.25 に修正 ▼▼▼
                 newLockRow.push(Math.random() < 0.25);
             }
             this.grid[r] = newGridRow;
@@ -672,8 +675,14 @@ export class Board {
     }
     
     dropGrid(numRows) {
-        for (let r = C.ROWS - 1; r >= numRows; r--) this.grid[r] = this.grid[r - numRows];
-        for (let r = 0; r < numRows; r++) this.grid[r].fill(0);
+        for (let r = C.TOTAL_ROWS - 1; r >= numRows; r--) {
+            this.grid[r] = this.grid[r - numRows];
+            this.lockGrid[r] = this.lockGrid[r - numRows];
+        }
+        for (let r = 0; r < numRows; r++) {
+            this.grid[r].fill(0);
+            this.lockGrid[r].fill(false);
+        }
     }
 /*
     updateAnimations(now) {
