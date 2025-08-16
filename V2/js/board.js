@@ -1,6 +1,10 @@
 import * as C from './config.js';
 import { ITEM_PROBABILITY_TABLE } from './config.js'; // これに変更
 import * as Utils from './utils.js';
+import * as Collisions from './board/collisions.js';
+import * as GridShift from './board/gridShift.js';
+import * as Gauge from './board/gauge.js';
+import * as Effects from './board/effects.js';
 
 let minoIdCounter = 0; // ミノのユニークIDを生成するためのカウンター
 
@@ -165,34 +169,7 @@ export class Board {
         }
     }
 
-    move(dx) {
-        if (!this.cur || this.clearPhase) return;
-        const nx = this.cur.x + dx;
-        if (nx < 0 || nx >= C.COLS) return;
-
-        for (let i = 0; i < 3; i++) {
-            const r1 = Math.floor(this.cur.y + i);
-            const r2 = Math.floor(this.cur.y + i + 0.999);
-            const gridRow1 = r1 + C.HIDDEN_ROWS_TOP;
-            const gridRow2 = r2 + C.HIDDEN_ROWS_TOP;
-            if ((gridRow1 >= 0 && gridRow1 < C.TOTAL_ROWS && this.grid[gridRow1][nx] > 0) ||
-                (r2 !== r1 && gridRow2 >= 0 && gridRow2 < C.TOTAL_ROWS && this.grid[gridRow2][nx] > 0)) {
-                return;
-            }
-        }
-        
-        const baseRow = Math.floor(this.cur.y);
-        if (this.collide(nx, baseRow + 1) && !this.collide(this.cur.x, baseRow + 1)) {
-            return;
-        }
-
-        this.cur.x = nx;
-        if (!this.falling && !this.collide(this.cur.x, Math.floor(this.cur.y) + 1)) {
-            this.falling = true;
-            clearTimeout(this.lockTimer);
-            this.lockTimer = null;
-        }
-    }
+    move(dx) { return Collisions.move.call(this, dx); }
 
     rotate(direction) {
         if (!this.cur || this.clearPhase) return;
@@ -310,13 +287,7 @@ export class Board {
     }
 
 
-    triggerScreenShake(magnitude, duration) {
-        this.screenShake = {
-            startTime: performance.now(),
-            magnitude: magnitude,
-            duration: duration
-        };
-    }    
+    triggerScreenShake(magnitude, duration) { return Effects.triggerScreenShake.call(this, magnitude, duration); }    
 
     spawn() {
         this.isPBlockActive = false;
@@ -362,17 +333,7 @@ export class Board {
         };
     }
 
-    collide(x, y) {
-        const baseY = Math.floor(y);
-        for (let i = 0; i < 3; i++) {
-            const rRel = baseY + i;
-            const c = x;
-            const gridRow = rRel + C.HIDDEN_ROWS_TOP;
-            if (gridRow >= C.TOTAL_ROWS) return true;
-            if (gridRow >= 0 && gridRow < C.TOTAL_ROWS && this.grid[gridRow][c] > 0) return true;
-        }
-        return false;
-    }
+    collide(x, y) { return Collisions.collide.call(this, x, y); }
     
     lockPiece() {
         if (!this.cur) return;
@@ -467,68 +428,13 @@ export class Board {
         }, C.CLEAR_CHECK_DELAY);
     }
     
-    setGauge(gaugeToAdd) {
-        // アニメーションの途中では、新しいゲージ加算を受け付けない
-        if (this.gaugeAnimation) return;
-
-        // `+S`アイテムなどで直接値を設定する場合も考慮
-        // `gaugeToAdd`がオブジェクトなら、それは直接設定の指示とみなす
-        if (typeof gaugeToAdd === 'object' && gaugeToAdd.absolute !== undefined) {
-            this.gauge = gaugeToAdd.absolute;
-            this.startGaugeAnimation({
-                startValue: this.displayGauge,
-                endValue: this.gauge,
-                duration: 500
-            });
-            return;
-        }
-
-        const oldValue = this.gauge;
-        const newValue = oldValue + gaugeToAdd;
-
-        if (newValue >= 100) {
-            // --- 100%に達した場合 ---
-            console.log("Gauge MAX! Attack!");
-            this.gaugeMaxCallback(); // 攻撃を通知
-
-            this.gauge = newValue % 100; // 内部的なゲージ値は超過分に更新
-            
-            // アニメーションを定義： ステップ1 (100%へ) -> ステップ2 (0%へ) -> ステップ3 (超過分へ)
-            const step3 = { startValue: 0, endValue: this.gauge, duration: 300 };
-            const step2 = { startValue: 100, endValue: 0, duration: 250, next: step3 };
-            const step1 = { startValue: this.displayGauge, endValue: 100, duration: 150, next: step2 };
-            
-            this.startGaugeAnimation(step1);
-
-        } else {
-            // --- 100%未満の場合 ---
-            this.gauge = newValue;
-            this.startGaugeAnimation({
-                startValue: this.displayGauge,
-                endValue: this.gauge,
-                duration: 500,
-            });
-        }
-    }
+    setGauge(gaugeToAdd) { return Gauge.setGauge.call(this, gaugeToAdd); }
 
     // ▼▼▼ 新しいヘルパーメソッドを追加 ▼▼▼
-    startGaugeAnimation(animData) {
-        this.gaugeAnimation = {
-            startTime: performance.now(),
-            startValue: animData.startValue,
-            endValue: animData.endValue,
-            duration: animData.duration,
-            next: animData.next || null,
-        };
-    }    
+    startGaugeAnimation(animData) { return Gauge.startGaugeAnimation.call(this, animData); }    
 
     // 攻撃を受けた時のエフェクトをトリガーする
-    triggerAttackEffect() {
-        this.attackEffect = {
-            startTime: performance.now(),
-            duration: 400 // 0.4秒のエフェクト
-        };
-    }    
+    triggerAttackEffect() { return Effects.triggerAttackEffect.call(this); }    
 
     createParticles(x, y, colorIndex) {
         const count = 10;
@@ -646,38 +552,9 @@ export class Board {
         }
     }
 
-    riseGrid(numRows) {
-        // 上端で詰まっても即ゲームオーバーにはしない（次回spawn時のみ判定）
-
-        // 実際にブロックを上にずらす（全行）
-        for (let r = 0; r < C.TOTAL_ROWS - numRows; r++) {
-            this.grid[r] = this.grid[r + numRows];
-            this.lockGrid[r] = this.lockGrid[r + numRows];
-        }
-
-        // 下に新しい行を生成する
-        for (let r = C.TOTAL_ROWS - numRows; r < C.TOTAL_ROWS; r++) {
-            const newGridRow = [];
-            const newLockRow = [];
-            for (let c = 0; c < C.COLS; c++) {
-                newGridRow.push(Math.floor(Math.random() * 5) + 1);
-                newLockRow.push(Math.random() < 0.25);
-            }
-            this.grid[r] = newGridRow;
-            this.lockGrid[r] = newLockRow;
-        }
-    }
+    riseGrid(numRows) { return GridShift.riseGrid.call(this, numRows); }
     
-    dropGrid(numRows) {
-        for (let r = C.TOTAL_ROWS - 1; r >= numRows; r--) {
-            this.grid[r] = this.grid[r - numRows];
-            this.lockGrid[r] = this.lockGrid[r - numRows];
-        }
-        for (let r = 0; r < numRows; r++) {
-            this.grid[r].fill(0);
-            this.lockGrid[r].fill(false);
-        }
-    }
+    dropGrid(numRows) { return GridShift.dropGrid.call(this, numRows); }
 /*
     updateAnimations(now) {
         if (this.gaugeAnimation) {
