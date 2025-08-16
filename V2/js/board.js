@@ -647,21 +647,15 @@ export class Board {
     }
 
     riseGrid(numRows) {
-        // 1. これ以上上に押し上げられない場合を先にチェック（隠し行も含めて）
-        for (let r = 0; r < numRows; r++) {
-            if (this.grid[r].some(cell => cell > 0)) {
-                this.gameOver();
-                return; // ゲームオーバーなので処理を中断
-            }
-        }
+        // 上端で詰まっても即ゲームオーバーにはしない（次回spawn時のみ判定）
 
-        // 2. 安全なら、実際にブロックを上にずらす（全行）
+        // 実際にブロックを上にずらす（全行）
         for (let r = 0; r < C.TOTAL_ROWS - numRows; r++) {
             this.grid[r] = this.grid[r + numRows];
             this.lockGrid[r] = this.lockGrid[r + numRows];
         }
 
-        // 3. 下に新しい行を生成する
+        // 下に新しい行を生成する
         for (let r = C.TOTAL_ROWS - numRows; r < C.TOTAL_ROWS; r++) {
             const newGridRow = [];
             const newLockRow = [];
