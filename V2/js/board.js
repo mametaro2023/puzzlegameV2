@@ -216,11 +216,11 @@ export class Board {
 
         switch (item) {
             case '+1':
-                this.triggerScreenShake(5, 200); // 弱い揺れを0.2秒
+                this.triggerScreenShake(5, 200, { dirY: 1.0, dirX: 0.4 }); // 縦寄りの揺れ（軽）
                 this.riseGrid(1);
                 break;
             case '+2':
-                this.triggerScreenShake(10, 250); // 強い揺れを0.25秒
+                this.triggerScreenShake(10, 250, { dirY: 1.0, dirX: 0.4 }); // 縦寄りの揺れ（強）
                 this.riseGrid(2);
                 break;
             case '-1': this.dropGrid(1); break;
@@ -257,11 +257,11 @@ export class Board {
 
         switch (itemName) {
             case '+1':
-                this.triggerScreenShake(6, 200); // 弱い揺れ (強さ6, 0.2秒)
+                this.triggerScreenShake(6, 200, { dirY: 1.0, dirX: 0.4 }); // 縦寄りの揺れ（軽）
                 this.riseGrid(1);
                 break;
             case '+2':
-                this.triggerScreenShake(12, 250); // 強い揺れ (強さ12, 0.25秒)
+                this.triggerScreenShake(12, 250, { dirY: 1.0, dirX: 0.4 }); // 縦寄りの揺れ（強）
                 this.riseGrid(2);
                 break;
             case '-1': this.dropGrid(1); break;
@@ -288,7 +288,7 @@ export class Board {
     }
 
 
-    triggerScreenShake(magnitude, duration) { return Effects.triggerScreenShake.call(this, magnitude, duration); }    
+    triggerScreenShake(magnitude, duration, options) { return Effects.triggerScreenShake.call(this, magnitude, duration, options); }    
 
     spawn() {
         this.isPBlockActive = false;

@@ -1,8 +1,10 @@
-export function triggerScreenShake(magnitude, duration) {
+export function triggerScreenShake(magnitude, duration, options = {}) {
     this.screenShake = {
         startTime: performance.now(),
         magnitude: magnitude,
-        duration: duration
+        duration: duration,
+        dirX: options.dirX ?? 1.0,
+        dirY: options.dirY ?? 1.0,
     };
 }
 

@@ -17,15 +17,40 @@ export class Renderer {
         // --- 画面全体をクリア ---
         this.ctx.clearRect(0, 0, C.CW, C.CH);
 
-        // --- 攻撃ヒットエフェクト（赤いフラッシュ） ---
+        // --- 攻撃ヒットエフェクト（柔らかいパルス/ショックウェーブ） ---
         if (player1Board.attackEffect) {
             const effect = player1Board.attackEffect;
             const progress = (now - effect.startTime) / effect.duration;
             if (progress < 1.0) {
-                // 最初は明るく、すぐに消えるアルファ値
-                const alpha = Math.sin(progress * Math.PI) * 0.5; // sinカーブで滑らかに
-                this.ctx.fillStyle = `rgba(255, 50, 50, ${alpha})`;
-                this.ctx.fillRect(0, 0, C.CW, C.CH);
+                const p = Math.max(0, Math.min(1, progress));
+                const eased = Utils.easeOutCubic(p);
+                const cx = C.OFFX + C.BOARD_WIDTH / 2;
+                const cy = C.OFFY + C.BOARD_HEIGHT / 2;
+                const maxR = Math.hypot(C.BOARD_WIDTH, C.BOARD_HEIGHT) * 0.5;
+                const r = maxR * eased;
+
+                this.ctx.save();
+                // 盤面内に限定
+                this.ctx.beginPath();
+                this.ctx.rect(C.OFFX, C.OFFY, C.BOARD_WIDTH, C.BOARD_HEIGHT);
+                this.ctx.clip();
+
+                // 穏やかな白パルス（中心から淡く広がる）
+                const g = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+                g.addColorStop(0, 'rgba(255,255,255,0.18)');
+                g.addColorStop(1, 'rgba(255,255,255,0.00)');
+                this.ctx.fillStyle = g;
+                this.ctx.fillRect(C.OFFX, C.OFFY, C.BOARD_WIDTH, C.BOARD_HEIGHT);
+
+                // ショックウェーブのリング
+                this.ctx.globalAlpha = 0.18 * (1 - eased);
+                this.ctx.strokeStyle = '#ffffff';
+                this.ctx.lineWidth = 6 * (1 - eased) + 2;
+                this.ctx.beginPath();
+                this.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                this.ctx.stroke();
+
+                this.ctx.restore();
             }
         }        
 
@@ -36,9 +61,20 @@ export class Renderer {
             const elapsedTime = now - shake.startTime;
             const progress = elapsedTime / shake.duration;
             if (progress < 1.0) {
-                const currentMagnitude = shake.magnitude * (1 - progress * progress); // 急に始まりゆっくり終わる
-                shakeX = (Math.random() - 0.5) * currentMagnitude;
-                shakeY = (Math.random() - 0.5) * currentMagnitude;
+                // 減衰エンベロープ
+                const envelope = Math.pow(1 - progress, 2);
+                // 疑似ノイズ（周期をずらしたサイン合成）
+                const t = now / 1000; // 秒
+                // 方向性（イベントに応じて横/縦の比率を渡せるようにする。既定は等方）
+                const dirX = shake.dirX ?? 1.0;
+                const dirY = shake.dirY ?? 1.0;
+                // 基本振幅
+                const amp = (shake.magnitude ?? 8) * envelope;
+                // ノイズ生成
+                const nx = Math.sin(t * 17.0) * 0.6 + Math.sin(t * 29.0) * 0.3 + Math.sin(t * 43.0) * 0.1;
+                const ny = Math.sin((t + 0.37) * 19.0) * 0.6 + Math.sin((t + 0.11) * 31.0) * 0.3 + Math.sin((t + 0.57) * 47.0) * 0.1;
+                shakeX = amp * dirX * nx;
+                shakeY = amp * dirY * ny;
             }
         }
 
