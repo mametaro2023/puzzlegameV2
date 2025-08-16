@@ -7,14 +7,25 @@ export class Renderer {
     constructor(canvas, ctx) {
         this.canvas = canvas;
         this.ctx = ctx;
+        this.pixelScale = 1;
+        this.isPortrait = false;
+    }
+
+    setScale(pixelScale, isPortrait) {
+        this.pixelScale = pixelScale || 1;
+        this.isPortrait = !!isPortrait;
     }
 
     // メインの描画関数
     draw(player1Board, player2Board) {
         const now = performance.now();
+        // リセットしてスケール適用
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.setTransform(this.pixelScale, 0, 0, this.pixelScale, 0, 0);
         this.ctx.save();
         
-        // --- 画面全体をクリア ---
+        // --- 画面全体をクリア（論理座標） ---
         this.ctx.clearRect(0, 0, C.CW, C.CH);
 
         // --- 攻撃ヒットエフェクト（柔らかいパルス/ショックウェーブ） ---
@@ -490,10 +501,12 @@ export class Renderer {
         const p2BlockSize = Math.floor(200 / C.COLS);
         const p2BoardWidth = p2BlockSize * C.COLS;
         const p2BoardHeight = p2BlockSize * C.ROWS;
-        const p2ViewY = C.OFFY;
+        // レイアウト切替: ポートレート時は盤面下に配置
+        const p2ViewY = this.isPortrait ? (C.OFFY + C.BOARD_HEIGHT + 20) : C.OFFY;
+        const p2ViewX = this.isPortrait ? C.OFFX : C.P2_VIEW_X;
 
         this.ctx.save();
-        this.ctx.translate(C.P2_VIEW_X, p2ViewY);
+        this.ctx.translate(p2ViewX, p2ViewY);
 
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
         this.ctx.fillRect(0, 0, p2BoardWidth, p2BoardHeight);
