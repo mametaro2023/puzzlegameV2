@@ -21,8 +21,11 @@ export class GameController {
         this.lobbyOverlay = document.getElementById('lobby-overlay');
         this.titleScreen = document.getElementById('title-screen');
         this.roomScreen = document.getElementById('room-screen');
-        this.playButton = document.getElementById('play-button');
-        this.joinButton = document.getElementById('join-button');
+        this.createRoomButton = document.getElementById('create-room-button');
+        this.enterRoomButton = document.getElementById('enter-room-button');
+        this.createButton = document.getElementById('create-button');
+        this.refreshRoomsButton = document.getElementById('refresh-rooms');
+        this.roomList = document.getElementById('room-list');
         this.roomInput = document.getElementById('room-input');
         this.statusText = document.getElementById('status-text');
         this.statusOverlay = document.getElementById('status-overlay');
@@ -40,19 +43,31 @@ export class GameController {
     }        
 
     setupLobbyEvents() {
-        this.playButton.addEventListener('click', () => {
+        this.createRoomButton.addEventListener('click', () => {
             this.titleScreen.classList.add('hidden');
             this.roomScreen.classList.remove('hidden');
         });
 
-        this.joinButton.addEventListener('click', () => {
+        this.enterRoomButton.addEventListener('click', () => {
+            this.titleScreen.classList.add('hidden');
+            document.getElementById('room-list-screen').classList.remove('hidden');
+            if (!this.socket.connected) this.socket.connect();
+            this.socket.emit('getRooms');
+        });
+
+        this.createButton.addEventListener('click', () => {
             const roomName = this.roomInput.value.trim();
             if (roomName) {
-                this.socket.connect();
+                if (!this.socket.connected) this.socket.connect();
                 this.socket.emit('joinRoom', roomName);
                 this.lobbyOverlay.classList.add('hidden');
                 this.startPractice();
             }
+        });
+
+        this.refreshRoomsButton.addEventListener('click', () => {
+            if (!this.socket.connected) this.socket.connect();
+            this.socket.emit('getRooms');
         });
     }  
 
@@ -92,6 +107,30 @@ export class GameController {
             this.player1Board.riseGrid(1);
             this.player1Board.triggerAttackEffect();
         });        
+
+        // ルーム一覧受信
+        this.socket.on('roomsList', (rooms) => {
+            // rooms: [{ name, count }]
+            this.roomList.innerHTML = '';
+            if (!rooms || rooms.length === 0) {
+                const p = document.createElement('p');
+                p.style.color = '#fff';
+                p.textContent = '参加可能な部屋がありません';
+                this.roomList.appendChild(p);
+                return;
+            }
+            rooms.forEach(r => {
+                const btn = document.createElement('button');
+                btn.textContent = `${r.name}（${r.count}/2）`;
+                btn.style.margin = '6px';
+                btn.addEventListener('click', () => {
+                    this.socket.emit('joinRoom', r.name);
+                    this.lobbyOverlay.classList.add('hidden');
+                    this.startPractice();
+                });
+                this.roomList.appendChild(btn);
+            });
+        });
     }
 
     startPractice() {

@@ -44,6 +44,14 @@ io.on('connection', (socket) => {
         }
     });
 
+    // ルーム一覧を返す
+    socket.on('getRooms', () => {
+        const list = Object.entries(rooms)
+            .filter(([, members]) => Array.isArray(members) && members.length > 0 && members.length < 2) // 待機中の部屋のみ
+            .map(([name, members]) => ({ name, count: members.length }));
+        io.to(socket.id).emit('roomsList', list);
+    });
+
     // 盤面データの中継処理を、部屋の中の相手にだけ送るように修正
     socket.on('boardUpdate', (data) => {
         if (socket.room) {

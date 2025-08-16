@@ -20,17 +20,25 @@
 </div>
 
 <div id="lobby-overlay">
-    <!-- タイトルとプレイボタンの画面 -->
+    <!-- タイトルとロビーの選択画面 -->
     <div id="title-screen">
         <h1>パズルゲーム</h1>
-        <button id="play-button">プレイ</button>
+        <button id="create-room-button">部屋を作る</button>
+        <button id="enter-room-button">部屋に入る</button>
     </div>
 
-    <!-- 部屋の名前を入力する画面 -->
+    <!-- 部屋を作る（部屋名入力） -->
     <div id="room-screen" class="hidden">
         <h2>部屋の名前を入力</h2>
         <input type="text" id="room-input" placeholder="例: room123" maxlength="15">
-        <button id="join-button">部屋に入る</button>
+        <button id="create-button">作成</button>
+    </div>
+
+    <!-- 部屋一覧から入室 -->
+    <div id="room-list-screen" class="hidden">
+        <h2>部屋を選択</h2>
+        <div id="room-list"></div>
+        <button id="refresh-rooms">更新</button>
     </div>
 </div>
 
