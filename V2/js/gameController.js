@@ -240,9 +240,12 @@ export class GameController {
     // start() { ... }
 
     gameOver() {
+        if (!this.isRunning) return;
         this.isRunning = false;
-        alert("Game Over");
-        window.location.reload();
+        if (this.socket && this.socket.connected) {
+            this.socket.emit('gameOver');
+        }
+        // 結果表示はサーバからの 'gameOver' ブロードキャストで行う
     }
 
     loop() {

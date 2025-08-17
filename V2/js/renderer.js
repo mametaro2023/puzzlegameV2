@@ -19,10 +19,9 @@ export class Renderer {
     // メインの描画関数
     draw(player1Board, player2Board) {
         const now = performance.now();
-        // リセットしてスケール適用
+        // 固定スケール（スケーリング無効化）
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        this.ctx.setTransform(this.pixelScale, 0, 0, this.pixelScale, 0, 0);
         this.ctx.save();
         
         // --- 画面全体をクリア（論理座標） ---
@@ -159,9 +158,7 @@ export class Renderer {
         for (let i = 0; i < 3; i++) {
             const x = C.OFFX + board.cur.x * C.BLOCK;
             const y = C.OFFY + (board.cur.y + i) * C.BLOCK;
-            if (board.cur.y + i >= 0) {
-                this.drawBlock(board.cur.cells[i], x, y, C.BLOCK);
-            }
+            this.drawBlock(board.cur.cells[i], x, y, C.BLOCK);
         }
     }
 
@@ -176,9 +173,7 @@ export class Renderer {
         }
         this.ctx.globalAlpha = 0.3;
         for (let i = 0; i < 3; i++) {
-            if (ghostY + i >= 0) {
-                this.drawBlock(board.cur.cells[i], C.OFFX + board.cur.x * C.BLOCK, C.OFFY + (ghostY + i) * C.BLOCK, C.BLOCK);
-            }
+            this.drawBlock(board.cur.cells[i], C.OFFX + board.cur.x * C.BLOCK, C.OFFY + (ghostY + i) * C.BLOCK, C.BLOCK);
         }
         this.ctx.globalAlpha = 1.0;
     }
@@ -502,8 +497,8 @@ export class Renderer {
         const p2BoardWidth = p2BlockSize * C.COLS;
         const p2BoardHeight = p2BlockSize * C.ROWS;
         // レイアウト切替: ポートレート時は盤面下に配置
-        const p2ViewY = this.isPortrait ? (C.OFFY + C.BOARD_HEIGHT + 20) : C.OFFY;
-        const p2ViewX = this.isPortrait ? C.OFFX : C.P2_VIEW_X;
+        const p2ViewY = C.OFFY;
+        const p2ViewX = C.P2_VIEW_X;
 
         this.ctx.save();
         this.ctx.translate(p2ViewX, p2ViewY);
@@ -528,9 +523,7 @@ export class Renderer {
         // 操作中ブロック
         if (board.cur) {
             for (let i = 0; i < 3; i++) {
-                if (board.cur.y + i >= 0) {
-                    this.drawBlock(board.cur.cells[i], board.cur.x * p2BlockSize, (board.cur.y + i) * p2BlockSize, p2BlockSize);
-                }
+                this.drawBlock(board.cur.cells[i], board.cur.x * p2BlockSize, (board.cur.y + i) * p2BlockSize, p2BlockSize);
             }
         }
         this.ctx.restore();
