@@ -25,6 +25,11 @@ export class Board {
         this.gauge = 0;
         this.displayGauge = 0;
         this.combo = 0;
+        
+        this.matchElapsed = 0; // 経過時間（秒）
+        this.score = 0;
+        this.displayScore = 0;
+        this.scoreTween = null;
 
         this.lockTimer = null;
         this.falling = true;
@@ -73,13 +78,15 @@ export class Board {
         this.clearPhase = false;
         this.fallingBlocks = [];
         this.droppingXBlocks = [];
+        this.matchElapsed = 0;
         this.spawn();
     }
 
 
     update(dt) {
         const now = performance.now();
-        //this.updateAnimations(now); // ゲージなどのUIアニメーション
+        this.matchElapsed += dt;
+        // ゲージ・UIアニメ（省略）
         // 古いupdateAnimationsの処理をここに移動
         if (this.usedItemAnimation && now - this.usedItemAnimation.startTime > this.usedItemAnimation.duration) {
             this.usedItemAnimation = null;
@@ -148,15 +155,26 @@ export class Board {
 
         // ゲームの状態に応じて、排他的な処理を実行する
         if (this.droppingXBlocks.length > 0) {
-            // アイテム「X」のブロックが落下中
             this.updateDroppingXBlocks(now);
         } else if (this.fallingBlocks.length > 0) {
-            // 消去後のブロックが落下中
             this.updateFallingBlocks(now);
-        } else if (this.cur && this.isPlayerOne) { // プレイヤー1（自分）のみ操作中のブロック落下を処理
+        } else if (this.cur && this.isPlayerOne) {
             // 操作中のブロックが落下中
             if (this.falling) {
-                const speed = C.BASE_SPEED + C.MAX_SPEED_BONUS * (this.gauge / 100);
+                // 時間経過ベース速度の上昇（緩やかに、上限あり）
+                const timeBonus = Math.min(1.5, Math.floor(this.matchElapsed / 10) * 0.05);
+                const base = C.BASE_SPEED + timeBonus;
+                const gaugeBonus = C.MAX_SPEED_BONUS * (this.gauge / 100);
+                let speed = base + gaugeBonus;
+
+                // ソフトドロップ（下キー押下中）
+                if (this.softDropping) {
+                    const boosted = base * C.SOFT_DROP_MULT + gaugeBonus;
+                    const maxSpeed = base + C.SOFT_DROP_MAX_DELTA + gaugeBonus;
+                    speed = Math.min(boosted, maxSpeed);
+                    this.score += C.SOFT_DROP_SCORE_RATE * dt;
+                }
+
                 const newY = this.cur.y + speed * dt;
                 const baseRow = Math.floor(this.cur.y);
                 if (!this.collide(this.cur.x, baseRow + 1)) {
@@ -168,6 +186,16 @@ export class Board {
                     this.lockTimer = setTimeout(() => this.lockPiece(), C.LOCK_DELAY);
                 }
             }
+        }
+        
+        // スコアのなめらか加算
+        if (this.displayScore < this.score) {
+            if (!this.scoreTween) {
+                this.scoreTween = { start: this.displayScore, end: this.score, startTime: now };
+            }
+            const p = Math.min((now - this.scoreTween.startTime) / C.SCORE_TWEEN_DURATION, 1.0);
+            this.displayScore = this.scoreTween.start + (this.scoreTween.end - this.scoreTween.start) * Utils.easeOutCubic(p);
+            if (p >= 1.0) this.scoreTween = null;
         }
     }
 
@@ -193,22 +221,29 @@ export class Board {
         }
     }
 
+    // 下キーでソフトドロップを開始/停止するためのフラグ
+    setSoftDrop(active) {
+        this.softDropping = active;
+    }
+
     hardDrop() {
         if (!this.cur || this.clearPhase) return;
-        const fromY = this.cur.y; // ドロップ前のY座標を記録
-
+        const fromY = this.cur.y;
+        let cellsDropped = 0;
         while (!this.collide(this.cur.x, this.cur.y + 1)) {
             this.cur.y++;
+            cellsDropped++;
         }
-        const toY = this.cur.y; // ドロップ後のY座標を記録
+        const toY = this.cur.y;
+        // スコア: ハードドロップ距離に応じて
+        this.score += cellsDropped * C.HARD_DROP_SCORE_PER_CELL;
 
-        // ブラーエフェクト情報をセット
-        if (toY > fromY) { // 実際に落下した場合のみエフェクトを発生
-             this.hardDropBlur = {
+        if (toY > fromY) {
+            this.hardDropBlur = {
                 fromY: fromY,
                 toY: toY,
                 x: this.cur.x,
-                cells: [...this.cur.cells], // ミノの情報をコピー
+                cells: [...this.cur.cells],
                 startTime: performance.now()
             };
         }
@@ -425,16 +460,18 @@ export class Board {
                 const gaugeToAdd = toClear.size * this.combo * C.GAUGE_COMBO_MULTIPLIER;
                 this.setGauge(gaugeToAdd);
 
-                // 段階演出: 収束→縮小→フェードのために座標と色を保存
                 const cells = Array.from(toClear).map(k => {
                     const [ar, ac] = k.split('_').map(Number);
                     return { r: ar, c: ac, color: this.grid[ar][ac] };
                 });
                 this.triggerClearStage(cells);
-                // コンボポップアップ
                 this.triggerComboPopup(this.combo);
 
-                // 実データ消去
+                // スコア: ブロック数とコンボでベース点を増幅
+                const blocks = toClear.size;
+                const clearScore = blocks * (C.CLEAR_BASE_SCORE + blocks * C.CLEAR_PER_BLOCK_FACTOR + this.combo * C.CLEAR_COMBO_FACTOR);
+                this.score += clearScore;
+
                 toClear.forEach(k => {
                     const [ar, ac] = k.split('_').map(Number);
                     const colorIndex = this.grid[ar][ac];

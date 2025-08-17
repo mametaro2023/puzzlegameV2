@@ -140,6 +140,16 @@ export class Renderer {
 
         this.drawUI(player1Board, now);           // NEXT, ゲージ, インベントリは揺れない
 
+        // スコアHUD
+        this.ctx.save();
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.textAlign = 'right';
+        this.ctx.textBaseline = 'top';
+        this.ctx.font = '28px sans-serif';
+        const scoreText = (player1Board.displayScore | 0).toLocaleString();
+        this.ctx.fillText(scoreText, C.OFFX + C.BOARD_WIDTH - 8, C.OFFY + 6);
+        this.ctx.restore();
+
         // カウントダウン描画
         if (this.countdown) {
             const elapsed = now - this.countdown.startTime;

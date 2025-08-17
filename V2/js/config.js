@@ -67,6 +67,22 @@ export const BASE_SPEED = 1.0;
 export const MAX_SPEED_BONUS = 3.0;
 export const GAUGE_COMBO_MULTIPLIER = 2;
 
+// Soft drop
+export const SOFT_DROP_MULT = 2.2;            // 倍率（基準スピードに掛ける）
+export const SOFT_DROP_MAX_DELTA = 2.0;       // 基準スピードに対する最大上乗せ
+export const SOFT_DROP_SCORE_RATE = 30;       // 1秒あたりのスコア加算
+
+// Hard drop
+export const HARD_DROP_SCORE_PER_CELL = 15;   // 1セル落下ごとのスコア
+
+// Clear scoring
+export const CLEAR_BASE_SCORE = 10;
+export const CLEAR_PER_BLOCK_FACTOR = 2;      // 同一ステップで多く消すほど増える
+export const CLEAR_COMBO_FACTOR = 5;          // コンボ数で増える
+
+// Score animation
+export const SCORE_TWEEN_DURATION = 600;      // ms
+
 // --- アイテム確率テーブル（変更なし） ---
 export const ITEM_PROBABILITY_TABLE = {
     1: { noItemWeight: 1, items: [] },

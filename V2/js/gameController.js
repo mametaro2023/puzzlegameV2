@@ -286,6 +286,7 @@ export class GameController {
                 grid: JSON.parse(JSON.stringify(this.player1Board.grid)),
                 lockGrid: JSON.parse(JSON.stringify(this.player1Board.lockGrid)),
                 cur: this.player1Board.cur ? JSON.parse(JSON.stringify(this.player1Board.cur)) : null,
+                score: this.player1Board.score | 0,
             };
             this.socket.emit('boardUpdate', boardData);
         }
@@ -306,6 +307,20 @@ export class GameController {
 
     hardDrop() {
         this.player1Board.hardDrop();
+    }
+
+    setSoftDrop(active) {
+        this.player1Board.setSoftDrop(active);
+    }
+
+    rotateInventory() {
+        const inv = this.player1Board.inventory;
+        if (inv.length > 1 && !this.player1Board.usedItemAnimation && !this.player1Board.inventorySlideAnimation) {
+            const last = inv.pop();
+            inv.unshift(last);
+            // 簡易UIスライド演出
+            this.player1Board.inventorySlideAnimation = { startTime: performance.now(), duration: 300 };
+        }
     }
 
     useItem(target) {

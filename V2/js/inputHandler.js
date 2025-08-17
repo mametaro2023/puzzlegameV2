@@ -3,6 +3,7 @@ export class InputHandler {
         this.controller = gameController;
         this._initialized = false;
         this._onKeyDown = null;
+        this._onKeyUp = null;
     }
 
     init() {
@@ -15,19 +16,20 @@ export class InputHandler {
                 case 'ArrowLeft': this.controller.movePiece(-1); break;
                 case 'ArrowRight': this.controller.movePiece(1); break;
                 case 'ArrowUp': this.controller.rotatePiece(1); break;
-                case 'ArrowDown': this.controller.rotatePiece(-1); break;
+                case 'ArrowDown': this.controller.setSoftDrop(true); break;
                 case ' ': this.controller.hardDrop(); break;
-                case 'x': case 'X':
-                    this.controller.useItem('self');
-                    break;
-                case 'c': case 'C':
-                    this.controller.useItem('opponent');
-                    break;
+                case 'v': case 'V': this.controller.rotateInventory(); break;
+                case 'x': case 'X': this.controller.useItem('self'); break;
+                case 'c': case 'C': this.controller.useItem('opponent'); break;
             }
         };
+        this._onKeyUp = (e) => {
+            if (e.key === 'ArrowDown') this.controller.setSoftDrop(false);
+        };
         document.addEventListener('keydown', this._onKeyDown);
+        document.addEventListener('keyup', this._onKeyUp);
 
-        // Touch Controls
+        // Touch Controls: 長押しでソフトドロップ（簡易）
         const handleTouchEvent = (e, callback) => { e.preventDefault(); callback(); };
         
         document.getElementById('btn-left').addEventListener('touchstart', (e) => handleTouchEvent(e, () => this.controller.movePiece(-1)), { passive: false });
