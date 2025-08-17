@@ -165,30 +165,50 @@ export class Renderer {
             this.drawPlayer2View(player2Board, now); // 相手画面も揺れない
         }
 
-        // --- 消去の段階演出（弾ける→拡散→消失） ---
+        // --- 消去の段階演出（弾ける→拡散→消失：フェードなし） ---
         if (player1Board.clearingCells && player1Board.clearingCells.length > 0) {
-            const stageP = Math.min((now - player1Board.clearingCells[0].startTime) / C.CLEAR_STAGE_DURATION, 1.0);
+            const t = Math.min((now - player1Board.clearingCells[0].startTime) / C.CLEAR_STAGE_DURATION, 1.0);
+            const explode = Utils.easeOutCubic(Math.min(t / 0.5, 1.0)); // 0..0.5 区間で完了
             this.ctx.save();
             player1Board.clearingCells.forEach(cell => {
                 const baseX = C.OFFX + cell.c * C.BLOCK;
                 const baseY = C.OFFY + (cell.r - C.HIDDEN_ROWS_TOP) * C.BLOCK;
-                // 立ち上がりに小さく収縮→すぐ爆散して拡散
-                const explode = Utils.easeOutCubic(stageP);
                 const spreadX = cell.offX * explode;
                 const spreadY = cell.offY * explode;
-                const scale = 1 - stageP * 0.5; // 少し縮む
-                const alpha = 1 - stageP;       // 薄くなる
-                this.ctx.save();
-                this.ctx.globalAlpha = alpha;
-                this.ctx.translate(baseX + C.BLOCK / 2 + spreadX, baseY + C.BLOCK / 2 + spreadY);
-                this.ctx.rotate(cell.rotDir * explode);
-                this.ctx.scale(scale, scale);
-                this.ctx.translate(-C.BLOCK / 2, -C.BLOCK / 2);
-                this.drawBlock(cell.color, 0, 0, C.BLOCK);
-                this.ctx.restore();
+                // スクイーズ→ポップアップ（フェードなし）
+                let scale;
+                if (t < 0.2) {
+                    scale = 1 - 0.12 * (t / 0.2);
+                } else if (t < 0.5) {
+                    scale = 1 + 0.25 * ((t - 0.2) / 0.3);
+                } else {
+                    scale = 0; // 以降は描画しない
+                }
+                if (scale > 0) {
+                    this.ctx.save();
+                    this.ctx.globalAlpha = 0.95; // フェードしない
+                    this.ctx.translate(baseX + C.BLOCK / 2 + spreadX, baseY + C.BLOCK / 2 + spreadY);
+                    this.ctx.rotate(cell.rotDir * explode);
+                    this.ctx.scale(scale, scale);
+                    this.ctx.translate(-C.BLOCK / 2, -C.BLOCK / 2);
+                    this.drawBlock(cell.color, 0, 0, C.BLOCK);
+                    // スターバースト
+                    this.ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.beginPath();
+                    const rays = 6;
+                    for (let i = 0; i < rays; i++) {
+                        const ang = (Math.PI * 2 * i) / rays + cell.rotDir;
+                        const len = 6 + 16 * explode;
+                        this.ctx.moveTo(C.BLOCK / 2, C.BLOCK / 2);
+                        this.ctx.lineTo(C.BLOCK / 2 + Math.cos(ang) * len, C.BLOCK / 2 + Math.sin(ang) * len);
+                    }
+                    this.ctx.stroke();
+                    this.ctx.restore();
+                }
             });
             this.ctx.restore();
-            if (stageP >= 1.0) player1Board.clearingCells = [];
+            if (t >= 0.6) player1Board.clearingCells = [];
         }
 
         // --- コンボポップアップ ---
