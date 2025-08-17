@@ -43,10 +43,12 @@ export class GameController {
         // イベントリスナーとコールバックを設定
         this.setupLobbyEvents();
         this.setupSocketEvents();
-        this.player1Board.onGaugeMax(() => {
-            this.socket.emit('gaugeAttack');
-        });
+        // 権威化: ゲージMAXの送信は廃止（サーバが判定）
         this.player1Board.onGameOver(this.gameOver.bind(this));
+        // 消去報告（ブロック数とコンボ）
+        this.player1Board.onClear(({ blocks, combo }) => {
+            if (this.socket.connected) this.socket.emit('reportClear', { blocks, combo });
+        });
 
         // 初回の背景描画
         this.renderer.draw(this.player1Board, this.player2Board);
@@ -148,6 +150,10 @@ export class GameController {
             this.player2Board.init();
         });
 
+        this.socket.on('applyItemSelf', (data) => {
+            this.player1Board.applyItemEffect(data.itemName);
+        });
+
         this.socket.on('receiveItem', (data) => {
             this.player1Board.applyItemEffect(data.itemName);
         });
@@ -155,6 +161,14 @@ export class GameController {
         this.socket.on('receiveAttack', () => {
             this.player1Board.riseGrid(1);
             this.player1Board.triggerAttackEffect();
+        });
+
+        // 権威: アイテム/ゲージの状態同期
+        this.socket.on('playerState', (state) => {
+            // 在庫は置換（表示はスライド演出で自然に）
+            this.player1Board.inventory = [...state.inventory];
+            // ゲージはTweenで補間
+            this.player1Board.setGauge({ absolute: state.gauge });
         });        
 
         this.socket.on('roomsList', (rooms) => {
@@ -287,8 +301,8 @@ export class GameController {
                 lockGrid: JSON.parse(JSON.stringify(this.player1Board.lockGrid)),
                 cur: this.player1Board.cur ? JSON.parse(JSON.stringify(this.player1Board.cur)) : null,
                 score: this.player1Board.score | 0,
-            };
-            this.socket.emit('boardUpdate', boardData);
+             };
+             this.socket.emit('boardUpdate', boardData);
         }
 
         // カウントダウン描画状態をRendererへ渡す
