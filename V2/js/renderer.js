@@ -22,6 +22,9 @@ export class Renderer {
         // 固定スケール（スケーリング無効化）
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        // reset state to avoid lingering alpha/composite from previous frame
+        this.ctx.globalAlpha = 1.0;
+        this.ctx.globalCompositeOperation = 'source-over';
         this.ctx.save();
         
         // --- 画面全体をクリア（論理座標） ---
@@ -116,9 +119,10 @@ export class Renderer {
                 const toX = C.OFFX + blur.toX * C.BLOCK;
                 const baseY = C.OFFY + blur.yBase * C.BLOCK;
                 const alpha = 0.25 * (1 - p);
-                this.ctx.save();
-                this.ctx.globalAlpha = alpha;
-                const steps = 4;
+                        this.ctx.save();
+        this.ctx.globalCompositeOperation = 'lighter';
+        this.ctx.globalAlpha = alpha;
+        const steps = 4;
                 for (let s = 1; s <= steps; s++) {
                     const t = s / steps;
                     const x = fromX + (toX - fromX) * t;
@@ -185,9 +189,10 @@ export class Renderer {
                     scale = 0; // 以降は描画しない
                 }
                 if (scale > 0) {
-                    this.ctx.save();
-                    this.ctx.globalAlpha = 0.95; // フェードしない
-                    this.ctx.translate(baseX + C.BLOCK / 2 + spreadX, baseY + C.BLOCK / 2 + spreadY);
+                            this.ctx.save();
+        this.ctx.globalCompositeOperation = 'lighter';
+        this.ctx.globalAlpha = 0.95; // フェードしない
+        this.ctx.translate(baseX + C.BLOCK / 2 + spreadX, baseY + C.BLOCK / 2 + spreadY);
                     this.ctx.rotate(cell.rotDir * explode);
                     this.ctx.scale(scale, scale);
                     this.ctx.translate(-C.BLOCK / 2, -C.BLOCK / 2);
@@ -500,9 +505,10 @@ export class Renderer {
         // 100%到達時の縁光
         if (Math.floor(board.displayGauge) === 100) {
             this.ctx.save();
-            this.ctx.globalAlpha = 0.35;
-            this.ctx.strokeStyle = '#cfe2ff';
-            this.ctx.lineWidth = 3;
+                    this.ctx.globalCompositeOperation = 'source-over';
+        this.ctx.globalAlpha = 0.35;
+        this.ctx.strokeStyle = '#cfe2ff';
+        this.ctx.lineWidth = 3;
             this.ctx.strokeRect(C.GAUGE_X - 2, C.OFFY - 2, gw + 4, gaugeHeight + 4);
             this.ctx.restore();
         }
@@ -568,6 +574,7 @@ export class Renderer {
 
         // ハイライト枠
         this.ctx.save();
+        this.ctx.globalCompositeOperation = 'source-over';
         this.ctx.strokeStyle = 'rgba(255,255,255,0.7)';
         this.ctx.strokeRect(pos1.x - 6, pos1.y - 6, C.BLOCK + 12, C.BLOCK * 3 + 12);
         this.ctx.restore();
