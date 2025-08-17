@@ -435,13 +435,57 @@ export class Renderer {
 
         // --- Gauge ---
         const gaugeHeight = C.BOARD_HEIGHT;
-        this.ctx.fillStyle = '#555';
+        // 背景
+        this.ctx.fillStyle = 'rgba(85,85,85,0.6)';
         this.ctx.fillRect(C.GAUGE_X, C.OFFY, C.BLOCK * 0.8, gaugeHeight);
+        // 塗り
         const fillH = gaugeHeight * (board.displayGauge / 100);
-        this.ctx.fillStyle = '#f00';
-        this.ctx.fillRect(C.GAUGE_X, C.OFFY + (gaugeHeight - fillH), C.BLOCK * 0.8, fillH);
-        this.ctx.strokeStyle = '#fff';
+        const gy = C.OFFY + (gaugeHeight - fillH);
+        const gx = C.GAUGE_X;
+        const gw = C.BLOCK * 0.8;
+        // グラデーション塗り
+        const grad = this.ctx.createLinearGradient(0, gy, 0, gy + fillH);
+        grad.addColorStop(0, '#79a7ff');
+        grad.addColorStop(1, '#416bff');
+        this.ctx.fillStyle = grad;
+        this.ctx.fillRect(gx, gy, gw, fillH);
+        // 外枠
+        this.ctx.strokeStyle = 'rgba(255,255,255,0.8)';
         this.ctx.strokeRect(C.GAUGE_X, C.OFFY, C.BLOCK * 0.8, gaugeHeight);
+        // ハイライト
+        this.ctx.save();
+        this.ctx.globalAlpha = 0.15 + 0.25 * (board.displayGauge / 100);
+        this.ctx.fillStyle = '#cfe2ff';
+        this.ctx.fillRect(gx, gy, gw, Math.min(10, fillH));
+        this.ctx.restore();
+        // ティック/しきい値のきらめき
+        const ticks = 5;
+        for (let i = 1; i < ticks; i++) {
+            const ty = C.OFFY + (gaugeHeight / ticks) * i;
+            this.ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+            this.ctx.beginPath();
+            this.ctx.moveTo(C.GAUGE_X, ty);
+            this.ctx.lineTo(C.GAUGE_X + gw, ty);
+            this.ctx.stroke();
+        }
+        // 臨界域のパルス（80%以上）
+        if (board.displayGauge >= 80) {
+            const pulse = Math.sin(performance.now() / 200) * 0.5 + 0.5; // 0..1
+            this.ctx.save();
+            this.ctx.globalAlpha = 0.15 + 0.15 * pulse;
+            this.ctx.fillStyle = '#ffffff';
+            this.ctx.fillRect(gx - 2, gy - 4, gw + 4, 6);
+            this.ctx.restore();
+        }
+        // 100%到達時の縁光
+        if (Math.floor(board.displayGauge) === 100) {
+            this.ctx.save();
+            this.ctx.globalAlpha = 0.35;
+            this.ctx.strokeStyle = '#cfe2ff';
+            this.ctx.lineWidth = 3;
+            this.ctx.strokeRect(C.GAUGE_X - 2, C.OFFY - 2, gw + 4, gaugeHeight + 4);
+            this.ctx.restore();
+        }
         
         // --- Inventory ---
         this.drawInventory(board, now);
@@ -457,6 +501,15 @@ export class Renderer {
         const pos1 = { x: C.NEXT_X, y: C.OFFY + 20 };
         const pos2 = { x: C.NEXT_X + C.BLOCK * 0.4, y: C.OFFY + 20 + C.BLOCK * 0.4 };
 
+        // グロー背景
+        this.ctx.save();
+        const glow = this.ctx.createLinearGradient(pos1.x, pos1.y, pos1.x + C.BLOCK, pos1.y + C.BLOCK * 3);
+        glow.addColorStop(0, 'rgba(65,107,255,0.15)');
+        glow.addColorStop(1, 'rgba(121,167,255,0.05)');
+        this.ctx.fillStyle = glow;
+        this.ctx.fillRect(pos1.x - 10, pos1.y - 10, C.BLOCK + 20, C.BLOCK * 3 + 20);
+        this.ctx.restore();
+
         // 影
         this.ctx.save();
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
@@ -469,13 +522,16 @@ export class Renderer {
         // 後ろ（2個目）
         if (anim && anim.progress < 1.0) {
             if (next2) {
+                // 奥側は軽く上下にパララックス
+                const wobble = Math.sin(performance.now() / 600) * 2;
                 this.ctx.globalAlpha = anim.progress * 0.8;
-                this.drawSingleNextMino(next2, pos2.x, pos2.y, C.BLOCK, 0.5); // 少し暗め
+                this.drawSingleNextMino(next2, pos2.x, pos2.y + wobble, C.BLOCK, 0.5);
                 this.ctx.globalAlpha = 1.0;
             }
         } else {
             if (next2) {
-                this.drawSingleNextMino(next2, pos2.x, pos2.y, C.BLOCK, 0.5);
+                const wobble = Math.sin(performance.now() / 600) * 2;
+                this.drawSingleNextMino(next2, pos2.x, pos2.y + wobble, C.BLOCK, 0.5);
             }
         }
 
@@ -485,7 +541,9 @@ export class Renderer {
             const slideY = pos2.y + (pos1.y - pos2.y) * anim.progress;
             this.drawSingleNextMino(next1, slideX, slideY, C.BLOCK);
         } else {
-            this.drawSingleNextMino(next1, pos1.x, pos1.y, C.BLOCK);
+            // 先頭は僅かなバウンス
+            const bounce = Math.sin(performance.now() / 400) * 1.5;
+            this.drawSingleNextMino(next1, pos1.x, pos1.y + bounce, C.BLOCK);
         }
 
         // ハイライト枠

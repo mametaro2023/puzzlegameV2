@@ -20,7 +20,7 @@ export class Board {
         
         this.cur = null;
         this.nextQueue = [];
-        this.inventory = ['+S'];
+        this.inventory = ['P'];
         
         this.gauge = 0;
         this.displayGauge = 0;
@@ -66,7 +66,7 @@ export class Board {
         this.grid = Array.from({ length: C.TOTAL_ROWS }, () => Array(C.COLS).fill(0));
         this.lockGrid = Array.from({ length: C.TOTAL_ROWS }, () => Array(C.COLS).fill(false));
         this.nextQueue = [];
-        this.inventory = ['+S'];
+        this.inventory = ['P'];
         this.gauge = 0;
         this.displayGauge = 0;
         this.combo = 0;
