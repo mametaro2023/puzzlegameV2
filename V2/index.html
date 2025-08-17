@@ -20,24 +20,24 @@
 
 <div id="lobby-overlay">
     <!-- タイトルとロビーの選択画面 -->
-    <div id="title-screen">
-        <h1>パズルゲーム</h1>
-        <button id="create-room-button">部屋を作る</button>
-        <button id="enter-room-button">部屋に入る</button>
+    <div id="title-screen" class="card card--elevated">
+        <h1 class="app-title">パズルゲーム</h1>
+        <button id="create-room-button" class="btn btn-primary">部屋を作る</button>
+        <button id="enter-room-button" class="btn btn-secondary">部屋に入る</button>
     </div>
 
     <!-- 部屋を作る（部屋名入力） -->
-    <div id="room-screen" class="hidden">
+    <div id="room-screen" class="hidden card card--elevated">
         <h2>部屋の名前を入力</h2>
         <input type="text" id="room-input" placeholder="例: room123" maxlength="15">
-        <button id="create-button">作成</button>
+        <button id="create-button" class="btn btn-primary">作成</button>
     </div>
 
     <!-- 部屋一覧から入室 -->
-    <div id="room-list-screen" class="hidden">
+    <div id="room-list-screen" class="hidden card card--elevated">
         <h2>部屋を選択</h2>
-        <div id="room-list"></div>
-        <button id="refresh-rooms">更新</button>
+        <div id="room-list" class="room-list"></div>
+        <button id="refresh-rooms" class="btn btn-ghost">更新</button>
     </div>
 </div>
 
@@ -53,17 +53,17 @@
     </div>
 </div>
 
-<div id="status-overlay" style="position: absolute; top: 10px; left: 10px; color: white; font-size: 24px; font-family: sans-serif; display: none;">
+<div id="status-overlay" class="status-overlay">
     <p id="status-text">準備中...</p>
-    <div id="pre-game-controls">
-        <button id="btn-start" class="hidden">ゲーム開始</button>
-        <button id="btn-leave" class="">退出</button>
+    <div id="pre-game-controls" class="pre-game-controls">
+        <button id="btn-start" class="btn btn-primary hidden">ゲーム開始</button>
+        <button id="btn-leave" class="btn btn-ghost">退出</button>
     </div>
 </div>
 
-<div id="result-overlay" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 28px; font-family: sans-serif; display: none; text-align: center;">
+<div id="result-overlay" class="result-overlay">
     <p id="result-text"></p>
-    <button id="btn-close-result">OK</button>
+    <button id="btn-close-result" class="btn btn-primary">OK</button>
 </div>
 
 <script type="module" src="js/main.js"></script>
