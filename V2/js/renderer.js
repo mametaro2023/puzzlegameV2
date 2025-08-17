@@ -2,6 +2,8 @@
 
 import * as C from './config.js';
 import * as Utils from './utils.js';
+import * as Effects from './render/effects.js';
+import * as UI from './render/ui.js';
 
 export class Renderer {
     constructor(canvas, ctx) {
@@ -101,14 +103,14 @@ export class Renderer {
         this.drawBoardState(player1Board);
         this.drawFallingBlocks(player1Board, now);
         this.drawDroppingXBlocks(player1Board, now);
-        this.drawParticles(player1Board);
+        Effects.drawParticles(this, player1Board);
 
         this.ctx.restore();
 
 
         // --- 3. 「揺れない要素」の描画 ---
         // save/restoreの外で描画するので、揺れの影響を受けない
-        this.drawHardDropBlur(player1Board, now);
+        Effects.drawHardDropBlur(this, player1Board, now);
         this.drawCurrentPiece(player1Board); // 操作中のミノは揺れない
         // 横移動モーションブラー（軽め、水平スワイプ）
         if (player1Board.moveBlur) {
@@ -138,17 +140,8 @@ export class Renderer {
             }
         }
 
-        this.drawUI(player1Board, now);           // NEXT, ゲージ, インベントリは揺れない
+        UI.drawUI(this, player1Board, now);           // NEXT, ゲージ, インベントリは揺れない
 
-        // スコアHUD
-        this.ctx.save();
-        this.ctx.fillStyle = '#ffffff';
-        this.ctx.textAlign = 'right';
-        this.ctx.textBaseline = 'top';
-        this.ctx.font = '28px sans-serif';
-        const scoreText = (player1Board.displayScore | 0).toLocaleString();
-        this.ctx.fillText(scoreText, C.OFFX + C.BOARD_WIDTH - 8, C.OFFY + 6);
-        this.ctx.restore();
 
         // カウントダウン描画
         if (this.countdown) {
@@ -282,7 +275,7 @@ export class Renderer {
                     if (board.lockGrid[r][c]) { this.ctx.globalAlpha = 0.5; }
                     this.drawBlock(v, x, y, C.BLOCK);
                     this.ctx.restore();
-                    if (board.lockGrid[r][c]) { this.drawLockedEffect(x, y); }
+                    if (board.lockGrid[r][c]) { Effects.drawLockedEffect(this, x, y); }
                 }
             }
         }
@@ -403,7 +396,7 @@ export class Renderer {
             if (b.isLocked) { this.ctx.globalAlpha = 0.5; }
             this.drawBlock(b.value, x, y, C.BLOCK); // 通常サイズを渡す
             this.ctx.restore();
-            if (b.isLocked) { this.drawLockedEffect(x, y); }
+            if (b.isLocked) { Effects.drawLockedEffect(this, x, y); }
         });
     }
 

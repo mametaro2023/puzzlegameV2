@@ -57,6 +57,7 @@ export class Board {
         //this.isGaugeResetting = false; // ゲージがリセット中かどうかのフラグ
 
         this.gameOverCallback = () => { console.log("Game Over"); };
+        this.clearCallback = () => {};
     }
 
     onGameOver(callback) {
@@ -66,6 +67,10 @@ export class Board {
     onGaugeMax(callback) {
         this.gaugeMaxCallback = callback;
     }    
+
+    onClear(callback) {
+        this.clearCallback = callback;
+    }
 
     init() {
         this.grid = Array.from({ length: C.TOTAL_ROWS }, () => Array(C.COLS).fill(0));
@@ -459,6 +464,8 @@ export class Board {
                 this.combo++;
                 const gaugeToAdd = toClear.size * this.combo * C.GAUGE_COMBO_MULTIPLIER;
                 this.setGauge(gaugeToAdd);
+                // サーバ権威化用: 消去報告コールバック
+                try { this.clearCallback({ blocks: toClear.size, combo: this.combo }); } catch {}
 
                 const cells = Array.from(toClear).map(k => {
                     const [ar, ac] = k.split('_').map(Number);
