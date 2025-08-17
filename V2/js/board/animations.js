@@ -19,7 +19,18 @@ export function createParticles(x, y, colorIndex) {
 
 export function triggerClearStage(cells) {
     // cells: array of {r,c,color}
-    this.clearingCells = cells.map(({ r, c, color }) => ({ r, c, color, startTime: performance.now() }));
+    this.clearingCells = cells.map(({ r, c, color }) => {
+        const angle = Math.random() * Math.PI * 2;
+        const amp = 12 + Math.random() * 8; // px
+        const rot = (Math.random() - 0.5) * 0.6; // rad (max ~34deg)
+        return {
+            r, c, color,
+            startTime: performance.now(),
+            offX: Math.cos(angle) * amp,
+            offY: Math.sin(angle) * amp,
+            rotDir: rot,
+        };
+    });
 }
 
 export function triggerComboPopup(combo) {

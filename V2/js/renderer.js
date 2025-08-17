@@ -165,22 +165,23 @@ export class Renderer {
             this.drawPlayer2View(player2Board, now); // 相手画面も揺れない
         }
 
-        // --- 消去の段階演出（収束→縮小→フェード） ---
+        // --- 消去の段階演出（弾ける→拡散→消失） ---
         if (player1Board.clearingCells && player1Board.clearingCells.length > 0) {
             const stageP = Math.min((now - player1Board.clearingCells[0].startTime) / C.CLEAR_STAGE_DURATION, 1.0);
-            const centerX = C.OFFX + C.BOARD_WIDTH / 2;
-            const centerY = C.OFFY + C.BOARD_HEIGHT / 2;
             this.ctx.save();
             player1Board.clearingCells.forEach(cell => {
-                const x = C.OFFX + cell.c * C.BLOCK;
-                const y = C.OFFY + (cell.r - C.HIDDEN_ROWS_TOP) * C.BLOCK;
-                const tx = x + (centerX - x) * stageP * 0.15;
-                const ty = y + (centerY - y) * stageP * 0.15;
-                const scale = 1 - stageP * 0.6;
-                const alpha = 1 - stageP;
+                const baseX = C.OFFX + cell.c * C.BLOCK;
+                const baseY = C.OFFY + (cell.r - C.HIDDEN_ROWS_TOP) * C.BLOCK;
+                // 立ち上がりに小さく収縮→すぐ爆散して拡散
+                const explode = Utils.easeOutCubic(stageP);
+                const spreadX = cell.offX * explode;
+                const spreadY = cell.offY * explode;
+                const scale = 1 - stageP * 0.5; // 少し縮む
+                const alpha = 1 - stageP;       // 薄くなる
                 this.ctx.save();
-                this.ctx.globalAlpha = alpha * 0.8;
-                this.ctx.translate(tx + C.BLOCK / 2, ty + C.BLOCK / 2);
+                this.ctx.globalAlpha = alpha;
+                this.ctx.translate(baseX + C.BLOCK / 2 + spreadX, baseY + C.BLOCK / 2 + spreadY);
+                this.ctx.rotate(cell.rotDir * explode);
                 this.ctx.scale(scale, scale);
                 this.ctx.translate(-C.BLOCK / 2, -C.BLOCK / 2);
                 this.drawBlock(cell.color, 0, 0, C.BLOCK);
