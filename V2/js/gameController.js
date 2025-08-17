@@ -176,6 +176,13 @@ export class GameController {
             });
         });
 
+        this.socket.on('roomsChanged', () => {
+            const listScreen = document.getElementById('room-list-screen');
+            if (!listScreen.classList.contains('hidden')) {
+                this.socket.emit('getRooms');
+            }
+        });
+
         this.socket.on('gameOver', ({ winnerId, loserId }) => {
             const isWinner = this.socket.id === winnerId;
             this.isRunning = false;

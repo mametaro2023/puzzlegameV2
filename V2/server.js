@@ -34,6 +34,7 @@ io.on('connection', (socket) => {
         }
         // 新規参加者に現状の状態を返す/部屋全体に準備状態を通知
         broadcastRoomReady(roomName);
+        io.emit('roomsChanged');
     });
 
     // ルーム一覧を返す（待機中＝メンバー1人、未開始）
@@ -53,6 +54,7 @@ io.on('connection', (socket) => {
         if (room.members.length < 2) return; // 2人揃っていない
         room.inGame = true;
         io.to(roomName).emit('gameStart', { roomName });
+        io.emit('roomsChanged');
     });
 
     // クライアントからのボード同期（ゲーム中のみ中継）
@@ -99,6 +101,7 @@ io.on('connection', (socket) => {
             room.inGame = false;
             broadcastRoomReady(roomName);
         }
+        io.emit('roomsChanged');
     });
 
     // ゲームオーバー通知（どちらかが負けた）
@@ -135,6 +138,7 @@ io.on('connection', (socket) => {
                     room.inGame = false;
                     broadcastRoomReady(roomName);
                 }
+                io.emit('roomsChanged');
             }
         }
     });
