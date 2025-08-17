@@ -1,11 +1,16 @@
 export class InputHandler {
     constructor(gameController) {
         this.controller = gameController;
+        this._initialized = false;
+        this._onKeyDown = null;
     }
 
     init() {
+        if (this._initialized) return;
+        this._initialized = true;
+
         // Keyboard
-        document.addEventListener('keydown', e => {
+        this._onKeyDown = (e) => {
             switch (e.key) {
                 case 'ArrowLeft': this.controller.movePiece(-1); break;
                 case 'ArrowRight': this.controller.movePiece(1); break;
@@ -13,13 +18,14 @@ export class InputHandler {
                 case 'ArrowDown': this.controller.rotatePiece(-1); break;
                 case ' ': this.controller.hardDrop(); break;
                 case 'x': case 'X':
-                    this.controller.useItem('self'); // 自分に使う
+                    this.controller.useItem('self');
                     break;
                 case 'c': case 'C':
-                    this.controller.useItem('opponent'); // 相手に使う
+                    this.controller.useItem('opponent');
                     break;
             }
-        });
+        };
+        document.addEventListener('keydown', this._onKeyDown);
 
         // Touch Controls
         const handleTouchEvent = (e, callback) => { e.preventDefault(); callback(); };

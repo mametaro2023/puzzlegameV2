@@ -132,6 +132,7 @@ export class GameController {
         });
 
         this.socket.on('opponentUpdate', (opponentData) => {
+            // 差分適用せずコピー（lockGridも反映）
             this.player2Board.grid = JSON.parse(JSON.stringify(opponentData.grid));
             this.player2Board.lockGrid = JSON.parse(JSON.stringify(opponentData.lockGrid));
             this.player2Board.cur = opponentData.cur ? JSON.parse(JSON.stringify(opponentData.cur)) : null;
