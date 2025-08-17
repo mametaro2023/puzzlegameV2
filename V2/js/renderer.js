@@ -107,6 +107,33 @@ export class Renderer {
         // save/restoreの外で描画するので、揺れの影響を受けない
         this.drawHardDropBlur(player1Board, now);
         this.drawCurrentPiece(player1Board); // 操作中のミノは揺れない
+        // 横移動モーションブラー（軽め、水平スワイプ）
+        if (player1Board.moveBlur) {
+            const blur = player1Board.moveBlur;
+            const p = Math.min((now - blur.startTime) / blur.duration, 1.0);
+            if (p < 1.0) {
+                const fromX = C.OFFX + blur.fromX * C.BLOCK;
+                const toX = C.OFFX + blur.toX * C.BLOCK;
+                const baseY = C.OFFY + blur.yBase * C.BLOCK;
+                const alpha = 0.25 * (1 - p);
+                this.ctx.save();
+                this.ctx.globalAlpha = alpha;
+                const steps = 4;
+                for (let s = 1; s <= steps; s++) {
+                    const t = s / steps;
+                    const x = fromX + (toX - fromX) * t;
+                    for (let i = 0; i < 3; i++) {
+                        const y = baseY + i * C.BLOCK;
+                        const v = blur.cells[i];
+                        if (v > 0) this.drawBlock(v, x, y, C.BLOCK);
+                    }
+                }
+                this.ctx.restore();
+            } else {
+                player1Board.moveBlur = null;
+            }
+        }
+
         this.drawUI(player1Board, now);           // NEXT, ゲージ, インベントリは揺れない
 
         // カウントダウン描画
@@ -121,7 +148,6 @@ export class Renderer {
             const text = remaining >= 1 ? String(remaining) : 'GO!';
 
             this.ctx.save();
-            // 盤面中心
             const cx = C.OFFX + C.BOARD_WIDTH / 2;
             const cy = C.OFFY + C.BOARD_HEIGHT / 2;
             this.ctx.translate(cx, cy);
@@ -137,6 +163,53 @@ export class Renderer {
 
         if (player2Board) {
             this.drawPlayer2View(player2Board, now); // 相手画面も揺れない
+        }
+
+        // --- 消去の段階演出（収束→縮小→フェード） ---
+        if (player1Board.clearingCells && player1Board.clearingCells.length > 0) {
+            const stageP = Math.min((now - player1Board.clearingCells[0].startTime) / C.CLEAR_STAGE_DURATION, 1.0);
+            const centerX = C.OFFX + C.BOARD_WIDTH / 2;
+            const centerY = C.OFFY + C.BOARD_HEIGHT / 2;
+            this.ctx.save();
+            player1Board.clearingCells.forEach(cell => {
+                const x = C.OFFX + cell.c * C.BLOCK;
+                const y = C.OFFY + (cell.r - C.HIDDEN_ROWS_TOP) * C.BLOCK;
+                const tx = x + (centerX - x) * stageP * 0.15;
+                const ty = y + (centerY - y) * stageP * 0.15;
+                const scale = 1 - stageP * 0.6;
+                const alpha = 1 - stageP;
+                this.ctx.save();
+                this.ctx.globalAlpha = alpha * 0.8;
+                this.ctx.translate(tx + C.BLOCK / 2, ty + C.BLOCK / 2);
+                this.ctx.scale(scale, scale);
+                this.ctx.translate(-C.BLOCK / 2, -C.BLOCK / 2);
+                this.drawBlock(cell.color, 0, 0, C.BLOCK);
+                this.ctx.restore();
+            });
+            this.ctx.restore();
+            if (stageP >= 1.0) player1Board.clearingCells = [];
+        }
+
+        // --- コンボポップアップ ---
+        if (player1Board.comboPopup) {
+            const pop = player1Board.comboPopup;
+            const t = Math.min((now - pop.startTime) / pop.duration, 1.0);
+            const up = Utils.easeOutCubic(t);
+            const alpha = 1 - t;
+            const cx = C.OFFX + C.BOARD_WIDTH / 2;
+            const cy = C.OFFY + 40 - up * 20;
+            const scale = 1 + Math.min(pop.combo, 5) * 0.05; // コンボが増えると少し大きく
+            this.ctx.save();
+            this.ctx.globalAlpha = alpha;
+            this.ctx.translate(cx, cy);
+            this.ctx.scale(scale, scale);
+            this.ctx.fillStyle = pop.combo >= 4 ? '#ffee88' : '#ffffff';
+            this.ctx.font = pop.combo >= 6 ? '48px sans-serif' : '36px sans-serif';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(`Combo x${pop.combo}`, 0, 0);
+            this.ctx.restore();
+            if (t >= 1.0) player1Board.comboPopup = null;
         }
     }
 
@@ -380,56 +453,45 @@ export class Renderer {
         const next1 = board.nextQueue[0];
         const next2 = board.nextQueue[1];
 
-        // --- 各ポジションの基本座標を定義 ---
         const pos1 = { x: C.NEXT_X, y: C.OFFY + 20 };
         const pos2 = { x: C.NEXT_X + C.BLOCK * 0.4, y: C.OFFY + 20 + C.BLOCK * 0.4 };
 
-        // --- 1. 影の描画 ---
-        // 1個目のミノの最終位置に、うっすらとした黒い影を直接描画する
+        // 影
         this.ctx.save();
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'; // 半透明の黒
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
         for (let i = 0; i < 3; i++) {
             const y = pos1.y + i * (C.BLOCK + 2);
-            // 影の位置を少しずらす
             this.ctx.fillRect(pos1.x + 4, y + 4, C.BLOCK, C.BLOCK);
         }
         this.ctx.restore();
 
-        // --- 2. 後ろにあるミノ（2個目）から先に描画する ---
+        // 後ろ（2個目）
         if (anim && anim.progress < 1.0) {
-            // --- アニメーション中の描画 ---
-
-            // 2-1. フェードイン中のミノ (現在のnext2) を描画
             if (next2) {
-                this.ctx.globalAlpha = anim.progress;
-                this.drawSingleNextMino(next2, pos2.x, pos2.y, C.BLOCK, 0.4); // 暗いままフェードイン
+                this.ctx.globalAlpha = anim.progress * 0.8;
+                this.drawSingleNextMino(next2, pos2.x, pos2.y, C.BLOCK, 0.5); // 少し暗め
                 this.ctx.globalAlpha = 1.0;
             }
-
         } else {
-            // --- 静止時の描画 ---
-            
-            // 2-2. 静止している2個目のミノを描画
             if (next2) {
-                this.drawSingleNextMino(next2, pos2.x, pos2.y, C.BLOCK, 0.4);
+                this.drawSingleNextMino(next2, pos2.x, pos2.y, C.BLOCK, 0.5);
             }
         }
 
-        // --- 3. 手前にあるミノ（1個目）を最後に描画する ---
+        // 手前（1個目）
         if (anim && anim.progress < 1.0) {
-            // --- アニメーション中の描画 ---
-
-            // 3-1. スライド中のミノ (現在のnext1) を描画
             const slideX = pos2.x + (pos1.x - pos2.x) * anim.progress;
             const slideY = pos2.y + (pos1.y - pos2.y) * anim.progress;
             this.drawSingleNextMino(next1, slideX, slideY, C.BLOCK);
-
         } else {
-            // --- 静止時の描画 ---
-
-            // 3-2. 静止している1個目のミノを描画
             this.drawSingleNextMino(next1, pos1.x, pos1.y, C.BLOCK);
         }
+
+        // ハイライト枠
+        this.ctx.save();
+        this.ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        this.ctx.strokeRect(pos1.x - 6, pos1.y - 6, C.BLOCK + 12, C.BLOCK * 3 + 12);
+        this.ctx.restore();
     }
 
     // NEXTミノ一つを描画する処理を共通化

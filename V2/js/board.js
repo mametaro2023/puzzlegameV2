@@ -6,6 +6,7 @@ import * as GridShift from './board/gridShift.js';
 import * as Gauge from './board/gauge.js';
 import * as Effects from './board/effects.js';
 import * as Anim from './board/animations.js';
+const { triggerMoveBlur, triggerClearStage, triggerComboPopup } = Anim;
 
 let minoIdCounter = 0; // ミノのユニークIDを生成するためのカウンター
 
@@ -170,7 +171,18 @@ export class Board {
         }
     }
 
-    move(dx) { return Collisions.move.call(this, dx); }
+    move(dx) {
+        const before = this.cur ? this.cur.x : null;
+        const beforeCells = this.cur ? [...this.cur.cells] : null;
+        const beforeY = this.cur ? this.cur.y : null;
+        const result = Collisions.move.call(this, dx);
+        if (this.cur && before !== null && this.cur.x !== before) {
+            // 横移動のモーションブラーをトリガ（軽め）
+            this.nextMinoAnimation = this.nextMinoAnimation; // no-op to keep structure
+            this.triggerMoveBlur(before, this.cur.x, beforeY, beforeCells);
+        }
+        return result;
+    }
 
     rotate(direction) {
         if (!this.cur || this.clearPhase) return;
@@ -413,6 +425,16 @@ export class Board {
                 const gaugeToAdd = toClear.size * this.combo * C.GAUGE_COMBO_MULTIPLIER;
                 this.setGauge(gaugeToAdd);
 
+                // 段階演出: 収束→縮小→フェードのために座標と色を保存
+                const cells = Array.from(toClear).map(k => {
+                    const [ar, ac] = k.split('_').map(Number);
+                    return { r: ar, c: ac, color: this.grid[ar][ac] };
+                });
+                this.triggerClearStage(cells);
+                // コンボポップアップ
+                this.triggerComboPopup(this.combo);
+
+                // 実データ消去
                 toClear.forEach(k => {
                     const [ar, ac] = k.split('_').map(Number);
                     const colorIndex = this.grid[ar][ac];
@@ -438,6 +460,8 @@ export class Board {
     triggerAttackEffect() { return Effects.triggerAttackEffect.call(this); }    
 
     createParticles(x, y, colorIndex) { return Anim.createParticles.call(this, x, y, colorIndex); }
+
+    triggerMoveBlur(fromX, toX, yBase, cells) { return Anim.triggerMoveBlur.call(this, fromX, toX, yBase, cells); }
 
     triggerFallAnimation() { return Anim.triggerFallAnimation.call(this); }
 

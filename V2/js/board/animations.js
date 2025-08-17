@@ -17,6 +17,30 @@ export function createParticles(x, y, colorIndex) {
     }
 }
 
+export function triggerClearStage(cells) {
+    // cells: array of {r,c,color}
+    this.clearingCells = cells.map(({ r, c, color }) => ({ r, c, color, startTime: performance.now() }));
+}
+
+export function triggerComboPopup(combo) {
+    this.comboPopup = {
+        combo,
+        startTime: performance.now(),
+        duration: C.COMBO_POPUP_DURATION
+    };
+}
+
+export function triggerMoveBlur(fromX, toX, yBase, cells) {
+    this.moveBlur = {
+        fromX,
+        toX,
+        yBase,
+        cells: [...cells],
+        startTime: performance.now(),
+        duration: C.MOVE_BLUR_DURATION
+    };
+}
+
 export function triggerFallAnimation() {
     const blocksToAnimate = [];
     for (let c = 0; c < C.COLS; c++) {
