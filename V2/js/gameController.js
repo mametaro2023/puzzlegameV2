@@ -56,9 +56,20 @@ export class GameController {
 
         this.enterRoomButton.addEventListener('click', () => {
             this.titleScreen.classList.add('hidden');
-            document.getElementById('room-list-screen').classList.remove('hidden');
-            if (!this.socket.connected) this.socket.connect();
-            this.socket.emit('getRooms');
+            const listScreen = document.getElementById('room-list-screen');
+            listScreen.classList.remove('hidden');
+            if (!this.socket.connected) {
+                this.socket.connect();
+                this.socket.once('connect', () => this.socket.emit('getRooms'));
+            } else {
+                this.socket.emit('getRooms');
+            }
+            // start polling
+            this._roomsPolling = setInterval(() => {
+                if (!listScreen.classList.contains('hidden')) {
+                    if (this.socket.connected) this.socket.emit('getRooms');
+                }
+            }, 2000);
         });
 
         this.createButton.addEventListener('click', () => {
@@ -68,14 +79,20 @@ export class GameController {
                 this.socket.emit('joinRoom', roomName);
                 this.titleScreen.classList.add('hidden');
                 this.roomScreen.classList.add('hidden');
+                document.getElementById('room-list-screen').classList.add('hidden');
+                if (this._roomsPolling) { clearInterval(this._roomsPolling); this._roomsPolling = null; }
                 this.statusOverlay.style.display = 'block';
                 this.statusText.textContent = '準備中...';
             }
         });
 
         this.refreshRoomsButton.addEventListener('click', () => {
-            if (!this.socket.connected) this.socket.connect();
-            this.socket.emit('getRooms');
+            if (!this.socket.connected) {
+                this.socket.connect();
+                this.socket.once('connect', () => this.socket.emit('getRooms'));
+            } else {
+                this.socket.emit('getRooms');
+            }
         });
 
         this.btnStart.addEventListener('click', () => {
@@ -151,6 +168,7 @@ export class GameController {
                 btn.addEventListener('click', () => {
                     this.socket.emit('joinRoom', r.name);
                     document.getElementById('room-list-screen').classList.add('hidden');
+                    if (this._roomsPolling) { clearInterval(this._roomsPolling); this._roomsPolling = null; }
                     this.statusOverlay.style.display = 'block';
                     this.statusText.textContent = '準備中...';
                 });
