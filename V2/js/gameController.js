@@ -18,6 +18,9 @@ export class GameController {
 
         this.socket = io({ autoConnect: false });
 
+        // カウントダウン状態
+        this.countdown = null; // { startTime, per: 1000, total: 3 }
+
         // UI要素の取得
         this.lobbyOverlay = document.getElementById('lobby-overlay');
         this.titleScreen = document.getElementById('title-screen');
@@ -226,9 +229,12 @@ export class GameController {
     
     startMatch() {
         console.log("Starting match!");
-        this.inputHandler.init();
+        // 盤面初期化のみ。操作とシミュレーションはカウントダウン後に開始。
         this.player1Board.init();
         this.player2Board.init();
+        // カウントダウン開始
+        this.countdown = { startTime: performance.now(), per: 1000, total: 3 };
+        // ループ起動
         this.isRunning = true;
         this.lastTime = performance.now();
         if (this.animationFrameId) {
@@ -256,10 +262,26 @@ export class GameController {
         const deltaTime = (currentTime - this.lastTime) / 1000;
         this.lastTime = currentTime;
 
-        this.player1Board.update(deltaTime);
+        // カウントダウン中はシミュレーション/送信を止める
+        let isCountingDown = false;
+        if (this.countdown) {
+            const elapsed = currentTime - this.countdown.startTime;
+            const totalDuration = this.countdown.per * this.countdown.total;
+            if (elapsed < totalDuration) {
+                isCountingDown = true;
+            } else {
+                // カウントダウン終了
+                this.countdown = null;
+                // 入力初期化（多重初期化はInputHandler側で防止）
+                this.inputHandler.init();
+            }
+        }
+
+        if (!isCountingDown) {
+            this.player1Board.update(deltaTime);
+        }
         
-        if (this.socket.connected) {
-             // ▼▼▼ 送信するデータも安全のためコピーを渡すようにする ▼▼▼
+        if (this.socket.connected && !isCountingDown) {
              const boardData = {
                 grid: JSON.parse(JSON.stringify(this.player1Board.grid)),
                 lockGrid: JSON.parse(JSON.stringify(this.player1Board.lockGrid)),
@@ -268,6 +290,8 @@ export class GameController {
             this.socket.emit('boardUpdate', boardData);
         }
 
+        // カウントダウン描画状態をRendererへ渡す
+        this.renderer.countdown = this.countdown;
         this.renderer.draw(this.player1Board, this.player2Board);
         this.animationFrameId = requestAnimationFrame(() => this.loop());
     }

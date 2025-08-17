@@ -109,6 +109,32 @@ export class Renderer {
         this.drawCurrentPiece(player1Board); // 操作中のミノは揺れない
         this.drawUI(player1Board, now);           // NEXT, ゲージ, インベントリは揺れない
 
+        // カウントダウン描画
+        if (this.countdown) {
+            const elapsed = now - this.countdown.startTime;
+            const per = this.countdown.per;
+            const total = this.countdown.total;
+            const remaining = Math.max(0, total - Math.floor(elapsed / per));
+            const phaseT = (elapsed % per) / per; // 0..1
+            const scale = 1.0 + 0.6 * (1 - Utils.easeOutCubic(phaseT));
+            const alpha = 0.9 * (1 - phaseT);
+            const text = remaining >= 1 ? String(remaining) : 'GO!';
+
+            this.ctx.save();
+            // 盤面中心
+            const cx = C.OFFX + C.BOARD_WIDTH / 2;
+            const cy = C.OFFY + C.BOARD_HEIGHT / 2;
+            this.ctx.translate(cx, cy);
+            this.ctx.scale(scale, scale);
+            this.ctx.globalAlpha = alpha;
+            this.ctx.fillStyle = '#ffffff';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.font = '120px sans-serif';
+            this.ctx.fillText(text, 0, 0);
+            this.ctx.restore();
+        }
+
         if (player2Board) {
             this.drawPlayer2View(player2Board, now); // 相手画面も揺れない
         }
