@@ -463,6 +463,10 @@ export class Board {
 
     triggerMoveBlur(fromX, toX, yBase, cells) { return Anim.triggerMoveBlur.call(this, fromX, toX, yBase, cells); }
 
+    triggerClearStage(cells) { return Anim.triggerClearStage.call(this, cells); }
+
+    triggerComboPopup(combo) { return Anim.triggerComboPopup.call(this, combo); }
+
     triggerFallAnimation() { return Anim.triggerFallAnimation.call(this); }
 
     triggerFlipAnimation() { return Anim.triggerFlipAnimation.call(this); }
