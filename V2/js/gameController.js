@@ -225,9 +225,15 @@ export class GameController {
     
     startMatch() {
         console.log("Starting match!");
+        this.inputHandler.init();
         this.player1Board.init();
         this.player2Board.init();
         this.isRunning = true;
+        this.lastTime = performance.now();
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+        }
+        this.loop();
     }
 
     // ▼▼▼ 不要になった 'start' メソッドを削除 ▼▼▼
