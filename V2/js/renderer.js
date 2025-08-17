@@ -448,12 +448,18 @@ export class Renderer {
         this.ctx.lineTo(x + 5, y + C.BLOCK - 5);
         this.ctx.stroke();
         this.ctx.lineWidth = 2;
-        this.ctx.strokeStyle = `rgba(255, 0, 0, ${alpha})`;
+        // ロックアイコン（南京錠）
+        this.ctx.strokeStyle = `rgba(207,226,255, ${alpha})`;
+        this.ctx.lineWidth = 2;
+        const cx = x + C.BLOCK / 2;
+        const cy = y + C.BLOCK / 2;
+        const w = C.BLOCK * 0.55;
+        const h = C.BLOCK * 0.45;
+        // ボディ
+        this.ctx.strokeRect(cx - w/2, cy - h/4, w, h/2);
+        // シャックル
         this.ctx.beginPath();
-        this.ctx.moveTo(x + 5, y + 5);
-        this.ctx.lineTo(x + C.BLOCK - 5, y + C.BLOCK - 5);
-        this.ctx.moveTo(x + C.BLOCK - 5, y + 5);
-        this.ctx.lineTo(x + 5, y + C.BLOCK - 5);
+        this.ctx.arc(cx, cy - h/4, w/3, Math.PI, 0);
         this.ctx.stroke();
         this.ctx.restore();
     }
@@ -464,7 +470,20 @@ export class Renderer {
         this.ctx.fillStyle = '#fff';
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'alphabetic';
-        this.ctx.fillText('NEXT', C.NEXT_X, C.OFFY);
+        // NEXTラベルをバッジ風に
+        this.ctx.save();
+        const badgeX = C.NEXT_X - 6;
+        const badgeY = C.OFFY - 6;
+        this.ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        this.ctx.fillRect(badgeX, badgeY, 90, 36);
+        this.ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        this.ctx.strokeRect(badgeX, badgeY, 90, 36);
+        this.ctx.fillStyle = '#cfe2ff';
+        this.ctx.font = '24px sans-serif';
+        this.ctx.textAlign = 'left';
+        this.ctx.textBaseline = 'top';
+        this.ctx.fillText('NEXT', C.NEXT_X, C.OFFY - 2);
+        this.ctx.restore();
 
         this.drawNextMinos(board);
 

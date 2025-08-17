@@ -515,42 +515,31 @@ export class Board {
             return; // インベントリ満杯か、コンボがなければ何もしない
         }
 
-        // 1. コンボ数に応じた抽選テーブルを取得
         const probabilityData = ITEM_PROBABILITY_TABLE[this.combo] || ITEM_PROBABILITY_TABLE.default;
-        
-        // 2. 抽選対象のアイテムリストと、「ハズレ」の重みを取得
         const itemsToDraw = probabilityData.items;
         const noItemWeight = probabilityData.noItemWeight;
 
-        // 抽選対象がなければ何もしない (1コンボ時など)
         if (itemsToDraw.length === 0 && noItemWeight > 0) {
             return;
         }
 
-        // 3. 全ての重みの合計を計算（アイテムの重み合計 + ハズレの重み）
         const totalWeight = itemsToDraw.reduce((sum, item) => sum + item.weight, 0) + noItemWeight;
-
-        // 4. 0から合計重みまでの範囲で乱数を生成
         const rand = Math.random() * totalWeight;
 
-        // 5. 抽選開始
         let cumulativeWeight = 0;
-
-        // 5-1. まず「ハズレ」かどうかを判定
         cumulativeWeight += noItemWeight;
         if (rand < cumulativeWeight) {
-            // ハズレだったので、何も獲得せずに終了
-            console.log(`No item acquired (Combo: ${this.combo})`);
             return;
         }
 
-        // 5-2. アイテムの中から抽選
         for (const item of itemsToDraw) {
             cumulativeWeight += item.weight;
             if (rand < cumulativeWeight) {
                 this.inventory.push(item.name);
-                console.log(`Acquired Item: ${item.name} (Combo: ${this.combo})`);
-                return; // アイテムを獲得したので処理終了
+                // 取得HUDアニメ（盤面→インベントリへ飛ぶ）
+                this.usedItemAnimation = { item: item.name, startTime: performance.now(), duration: 300 };
+                this.inventorySlideAnimation = { startTime: performance.now(), duration: 400 };
+                return;
             }
         }
     }

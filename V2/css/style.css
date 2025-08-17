@@ -94,6 +94,12 @@ canvas {
 @media screen and (min-width: 769px) {
   #controls-overlay { display: none; }
 }
+@media (pointer: fine) {
+  #controls-overlay { display: none; }
+}
+@media (pointer: coarse) and (max-width: 768px) {
+  #controls-overlay { display: flex; }
+}
 
 /* --- ロビー画面のスタイル --- */
 #lobby-overlay {
