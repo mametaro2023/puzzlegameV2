@@ -20,86 +20,119 @@ export function drawUI(renderer, board, now) {
 
     drawNextMinos(renderer, board);
 
-    // Gauge
+    // Gauge (with shake and redesigned lightning)
     const gaugeHeight = C.BOARD_HEIGHT;
     const fillH = gaugeHeight * (board.displayGauge / 100);
     const gy = C.OFFY + (gaugeHeight - fillH);
     const gx = C.GAUGE_X;
     const gw = C.BLOCK * 0.8;
+    const g = board.displayGauge;
 
-    renderer.ctx.fillStyle = 'rgba(85,85,85,0.6)';
-    renderer.ctx.fillRect(C.GAUGE_X, C.OFFY, gw, gaugeHeight);
+    // Shake amount by gauge level (smooth, time-based)
+    // Thresholded amplitude scaling: 50%〜で発生、段階的に強く
+    let shakeAmp = 0;
+    if (g >= 50 && g < 100) {
+        const ratio = (g - 50) / 50; // 0〜1
+        shakeAmp = 0.6 + Utils.easeOutQuad(ratio) * 2.0; // 0.6〜2.6
+    }
+    const t = now / 1000;
+    const shakeX = (Math.sin(t * 12.7) + Math.sin(t * 4.3 + 1.2)) * 0.5 * shakeAmp;
+    const shakeY = (Math.sin(t * 10.1 + 0.7) + Math.sin(t * 3.7 + 2.1)) * 0.5 * shakeAmp;
 
-    const grad = renderer.ctx.createLinearGradient(0, gy, 0, C.OFFY + gaugeHeight);
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+
+    // Background
+    ctx.fillStyle = 'rgba(85,85,85,0.6)';
+    ctx.fillRect(C.GAUGE_X, C.OFFY, gw, gaugeHeight);
+
+    // Fill
+    const grad = ctx.createLinearGradient(0, gy, 0, C.OFFY + gaugeHeight);
     grad.addColorStop(0, '#79a7ff');
     grad.addColorStop(1, '#416bff');
-    renderer.ctx.fillStyle = grad;
-    renderer.ctx.fillRect(gx, gy, gw, fillH);
+    ctx.fillStyle = grad;
+    ctx.fillRect(gx, gy, gw, fillH);
 
-    renderer.ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-    renderer.ctx.strokeRect(C.GAUGE_X, C.OFFY, gw, gaugeHeight);
+    // Outline
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.strokeRect(C.GAUGE_X, C.OFFY, gw, gaugeHeight);
 
-    renderer.ctx.save();
-    renderer.ctx.globalAlpha = 0.15 + 0.25 * (board.displayGauge / 100);
-    renderer.ctx.fillStyle = '#cfe2ff';
-    renderer.ctx.fillRect(gx, gy, gw, Math.min(10, gaugeHeight * (board.displayGauge / 100)));
-    renderer.ctx.restore();
+    // Top highlight
+    ctx.save();
+    ctx.globalAlpha = 0.15 + 0.25 * (g / 100);
+    ctx.fillStyle = '#cfe2ff';
+    ctx.fillRect(gx, gy, gw, Math.min(10, fillH));
+    ctx.restore();
 
+    // Ticks
     const ticks = 5;
     for (let i = 1; i < ticks; i++) {
         const ty = C.OFFY + (gaugeHeight / ticks) * i;
-        renderer.ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-        renderer.ctx.beginPath();
-        renderer.ctx.moveTo(C.GAUGE_X, ty);
-        renderer.ctx.lineTo(C.GAUGE_X + gw, ty);
-        renderer.ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.beginPath();
+        ctx.moveTo(C.GAUGE_X, ty);
+        ctx.lineTo(C.GAUGE_X + gw, ty);
+        ctx.stroke();
     }
 
-    if (board.displayGauge >= 80) {
-        const pulse = Math.sin(performance.now() / 200) * 0.5 + 0.5;
-        renderer.ctx.save();
-        renderer.ctx.globalAlpha = 0.15 + 0.15 * pulse;
-        renderer.ctx.fillStyle = '#ffffff';
-        renderer.ctx.fillRect(gx - 2, gy - 4, gw + 4, 6);
-        renderer.ctx.restore();
+    // Critical pulse (80%+)
+    if (g >= 80) {
+        const pulse = Math.sin(now / 200) * 0.5 + 0.5;
+        ctx.save();
+        ctx.globalAlpha = 0.15 + 0.15 * pulse;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(gx - 2, gy - 4, gw + 4, 6);
+        ctx.restore();
     }
-    if (Math.floor(board.displayGauge) === 100) {
-        renderer.ctx.save();
-        renderer.ctx.globalAlpha = 0.35;
-        renderer.ctx.strokeStyle = '#cfe2ff';
-        renderer.ctx.lineWidth = 3;
-        renderer.ctx.strokeRect(C.GAUGE_X - 2, C.OFFY - 2, gw + 4, gaugeHeight + 4);
-        renderer.ctx.restore();
+    // 100% edge glow
+    if (Math.floor(g) === 100) {
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = '#cfe2ff';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(C.GAUGE_X - 2, C.OFFY - 2, gw + 4, gaugeHeight + 4);
+        ctx.restore();
     }
 
-    // 震え・ビリビリ（ゲージ量で強度切替）
-    const g = board.displayGauge;
-    if (g >= 50 && g < 100) {
-        const strength = g < 75 ? 1 : g < 90 ? 2 : 3;
-        // 震え: 枠内を僅かにランダムシフト
-        const shakeX = (Math.random() - 0.5) * strength;
-        const shakeY = (Math.random() - 0.5) * strength;
-        renderer.ctx.save();
-        renderer.ctx.translate(shakeX, shakeY);
-        // ビリビリ: 稲妻風ラインを数本
-        const bolts = strength; // 1〜3本
+    // Lightning inside gauge fill
+    if (g >= 50 && fillH > 4) {
+        ctx.save();
+        // Clip to fill area
+        ctx.beginPath();
+        ctx.rect(gx, gy, gw, fillH);
+        ctx.clip();
+
+        const bolts = g < 75 ? 1 : (g < 90 ? 2 : 3);
+        ctx.globalCompositeOperation = 'lighter';
         for (let b = 0; b < bolts; b++) {
-            const segments = 6;
-            let bx = gx + gw / 2;
-            let by = gy + (gaugeHeight * (1 - g / 100)) + b * 4;
-            renderer.ctx.beginPath();
-            renderer.ctx.moveTo(bx, by);
-            for (let s = 0; s < segments; s++) {
-                bx += (Math.random() - 0.5) * 8;
-                by += (fillH / segments);
-                renderer.ctx.lineTo(bx, by);
+            const segments = 7 + (g > 90 ? 2 : 0);
+            const centerX = gx + gw * (0.2 + 0.6 * ((b + 1) / (bolts + 1)));
+            const amp = gw * (0.12 + g / 500); // 横振幅
+            const phase = now / 90 + b * 1.7;
+            let bx = centerX;
+            let by = gy;
+            ctx.beginPath();
+            ctx.moveTo(bx, by);
+            for (let s = 1; s <= segments; s++) {
+                const pseg = s / segments;
+                const dy = fillH / segments;
+                const wobble = Math.sin(phase + s * 0.9) * amp * (1 - pseg * 0.2)
+                             + Math.sin(phase * 0.7 + s * 1.7) * amp * 0.3;
+                bx = Math.min(gx + gw - 2, Math.max(gx + 2, centerX + wobble));
+                by = gy + dy * s;
+                ctx.lineTo(bx, by);
             }
-            renderer.ctx.strokeStyle = 'rgba(207,226,255,0.35)';
-            renderer.ctx.lineWidth = 1 + 0.5 * strength;
-            renderer.ctx.stroke();
+            const alpha = 0.22 + ((g - 50) / 50) * 0.28; // 0.22〜0.5
+            ctx.strokeStyle = `rgba(200,220,255,${alpha})`;
+            ctx.lineWidth = 1.2 + (g > 90 ? 0.8 : 0);
+            ctx.shadowColor = 'rgba(121,167,255,0.7)';
+            ctx.shadowBlur = 8 + (g > 90 ? 6 : 0);
+            ctx.stroke();
         }
-        renderer.ctx.restore();
+        ctx.restore();
     }
+
+    ctx.restore();
 
     drawInventory(renderer, board, now);
 

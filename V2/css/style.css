@@ -44,7 +44,7 @@ canvas {
 	box-sizing: border-box;
 	display: grid;
 	grid-template-areas:
-		"rotate-up   .        .          hard-drop"
+		"rotate-up   use-item .          hard-drop"
 		"left        right    use-self   use-opponent"
 		"rotate-down .        .          .";
 	grid-template-columns: 1fr 1fr 1fr 1fr;
