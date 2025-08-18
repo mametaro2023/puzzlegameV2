@@ -94,43 +94,7 @@ export function drawUI(renderer, board, now) {
         ctx.restore();
     }
 
-    // Lightning inside gauge fill
-    if (g >= 50 && fillH > 4) {
-        ctx.save();
-        // Clip to fill area
-        ctx.beginPath();
-        ctx.rect(gx, gy, gw, fillH);
-        ctx.clip();
-
-        const bolts = g < 75 ? 1 : (g < 90 ? 2 : 3);
-        ctx.globalCompositeOperation = 'lighter';
-        for (let b = 0; b < bolts; b++) {
-            const segments = 7 + (g > 90 ? 2 : 0);
-            const centerX = gx + gw * (0.2 + 0.6 * ((b + 1) / (bolts + 1)));
-            const amp = gw * (0.12 + g / 500); // 横振幅
-            const phase = now / 90 + b * 1.7;
-            let bx = centerX;
-            let by = gy;
-            ctx.beginPath();
-            ctx.moveTo(bx, by);
-            for (let s = 1; s <= segments; s++) {
-                const pseg = s / segments;
-                const dy = fillH / segments;
-                const wobble = Math.sin(phase + s * 0.9) * amp * (1 - pseg * 0.2)
-                             + Math.sin(phase * 0.7 + s * 1.7) * amp * 0.3;
-                bx = Math.min(gx + gw - 2, Math.max(gx + 2, centerX + wobble));
-                by = gy + dy * s;
-                ctx.lineTo(bx, by);
-            }
-            const alpha = 0.22 + ((g - 50) / 50) * 0.28; // 0.22〜0.5
-            ctx.strokeStyle = `rgba(200,220,255,${alpha})`;
-            ctx.lineWidth = 1.2 + (g > 90 ? 0.8 : 0);
-            ctx.shadowColor = 'rgba(121,167,255,0.7)';
-            ctx.shadowBlur = 8 + (g > 90 ? 6 : 0);
-            ctx.stroke();
-        }
-        ctx.restore();
-    }
+    // (Lightning effect temporarily removed by request)
 
     ctx.restore();
 
