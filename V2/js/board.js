@@ -172,11 +172,9 @@ export class Board {
                 const gaugeBonus = C.MAX_SPEED_BONUS * (this.gauge / 100);
                 let speed = base + gaugeBonus;
 
-                // ソフトドロップ（下キー押下中）
+                // ソフトドロップ（下キー押下中）: ベース速度に+5ブロック/秒、ゲージは無視
                 if (this.softDropping) {
-                    const boosted = base * C.SOFT_DROP_MULT + gaugeBonus;
-                    const maxSpeed = base + C.SOFT_DROP_MAX_DELTA + gaugeBonus;
-                    speed = Math.min(boosted, maxSpeed);
+                    speed = base + 5;
                     this.score += C.SOFT_DROP_SCORE_RATE * dt;
                 }
 

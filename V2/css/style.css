@@ -74,8 +74,9 @@ canvas {
 #btn-left { grid-area: left; }
 #btn-right { grid-area: right; }
 #btn-rotate-up { grid-area: rotate-up; }
-#btn-rotate-down { grid-area: rotate-down; }
+#btn-soft-drop { grid-area: rotate-down; }
 #btn-hard-drop { grid-area: hard-drop; font-size: 16px; }
+#btn-rotate-inv { grid-area: use-item; }
 /*#btn-use-item { grid-area: use-item; }
 */
 

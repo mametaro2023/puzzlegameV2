@@ -22,7 +22,8 @@ export function drawUI(renderer, board, now) {
 
     // Gauge
     const gaugeHeight = C.BOARD_HEIGHT;
-    const gy = C.OFFY + (gaugeHeight - gaugeHeight * (board.displayGauge / 100));
+    const fillH = gaugeHeight * (board.displayGauge / 100);
+    const gy = C.OFFY + (gaugeHeight - fillH);
     const gx = C.GAUGE_X;
     const gw = C.BLOCK * 0.8;
 
@@ -33,7 +34,7 @@ export function drawUI(renderer, board, now) {
     grad.addColorStop(0, '#79a7ff');
     grad.addColorStop(1, '#416bff');
     renderer.ctx.fillStyle = grad;
-    renderer.ctx.fillRect(gx, gy, gw, gaugeHeight * (board.displayGauge / 100));
+    renderer.ctx.fillRect(gx, gy, gw, fillH);
 
     renderer.ctx.strokeStyle = 'rgba(255,255,255,0.8)';
     renderer.ctx.strokeRect(C.GAUGE_X, C.OFFY, gw, gaugeHeight);
