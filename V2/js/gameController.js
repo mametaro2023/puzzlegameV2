@@ -171,6 +171,14 @@ export class GameController {
             this.player1Board.setGauge({ absolute: state.gauge });
         });        
 
+        // 自分のビーム発射演出
+        this.socket.on('beamFire', () => {
+            // シンプルな演出: 盤面右方向へ細い光線
+            this.player1Board.attackEffect = { startTime: performance.now(), duration: 350 };
+            // 追加で画面揺れを少し
+            this.player1Board.triggerScreenShake(6, 200, { dirX: 1.0, dirY: 0.3 });
+        });
+
         this.socket.on('roomsList', (rooms) => {
             this.roomList.innerHTML = '';
             if (!rooms || rooms.length === 0) {

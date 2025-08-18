@@ -71,6 +71,35 @@ export function drawUI(renderer, board, now) {
         renderer.ctx.restore();
     }
 
+    // 震え・ビリビリ（ゲージ量で強度切替）
+    const g = board.displayGauge;
+    if (g >= 50 && g < 100) {
+        const strength = g < 75 ? 1 : g < 90 ? 2 : 3;
+        // 震え: 枠内を僅かにランダムシフト
+        const shakeX = (Math.random() - 0.5) * strength;
+        const shakeY = (Math.random() - 0.5) * strength;
+        renderer.ctx.save();
+        renderer.ctx.translate(shakeX, shakeY);
+        // ビリビリ: 稲妻風ラインを数本
+        const bolts = strength; // 1〜3本
+        for (let b = 0; b < bolts; b++) {
+            const segments = 6;
+            let bx = gx + gw / 2;
+            let by = gy + (gaugeHeight * (1 - g / 100)) + b * 4;
+            renderer.ctx.beginPath();
+            renderer.ctx.moveTo(bx, by);
+            for (let s = 0; s < segments; s++) {
+                bx += (Math.random() - 0.5) * 8;
+                by += (fillH / segments);
+                renderer.ctx.lineTo(bx, by);
+            }
+            renderer.ctx.strokeStyle = 'rgba(207,226,255,0.35)';
+            renderer.ctx.lineWidth = 1 + 0.5 * strength;
+            renderer.ctx.stroke();
+        }
+        renderer.ctx.restore();
+    }
+
     drawInventory(renderer, board, now);
 
     // Score HUD

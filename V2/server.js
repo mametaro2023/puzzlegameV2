@@ -123,6 +123,8 @@ io.on('connection', (socket) => {
 
     // ゲージMAX攻撃
     if (overflow !== 0 || add >= 100) {
+      // 射手にビーム演出、相手に攻撃
+      io.to(socket.id).emit('beamFire');
       socket.broadcast.to(roomName).emit('receiveAttack');
     }
   });
