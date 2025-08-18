@@ -352,9 +352,15 @@ export class GameController {
     rotateInventory() {
         const inv = this.player1Board.inventory;
         if (inv.length > 1 && !this.player1Board.usedItemAnimation && !this.player1Board.inventorySlideAnimation) {
-            // 見た目のみのスライド演出（在庫の回転自体はサーバ権威で行う）
+            // 即時の視覚反映（ローカル回転）
+            const last = inv.pop();
+            inv.unshift(last);
             this.player1Board.inventorySlideAnimation = { startTime: performance.now(), duration: 300 };
-            if (this.socket && this.socket.connected) {
+            // サーバにも通知（権威側でも同じ回転が行われ、直後のplayerStateで整合）
+            if (!this.socket.connected) {
+                this.socket.connect();
+                this.socket.once('connect', () => this.socket.emit('rotateInventory'));
+            } else {
                 this.socket.emit('rotateInventory');
             }
         }
@@ -370,7 +376,10 @@ export class GameController {
         this.player1Board.usedItemAnimation = { item: itemToUse, startTime: now, duration: 300 };
         this.player1Board.inventorySlideAnimation = { startTime: now, duration: 500 };
 
-        if (this.socket && this.socket.connected) {
+        if (!this.socket.connected) {
+            this.socket.connect();
+            this.socket.once('connect', () => this.socket.emit('useItem', { target }));
+        } else {
             this.socket.emit('useItem', { target });
         }
     }
