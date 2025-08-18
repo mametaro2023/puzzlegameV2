@@ -12,9 +12,12 @@ export class InputHandler {
 
         // Keyboard
         this._onKeyDown = (e) => {
+<<<<<<< HEAD
             // ブラウザのデフォルト動作を抑制（スクロールなど）
             const handledKeys = new Set(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' ','v','V','x','X','c','C']);
             if (handledKeys.has(e.key)) e.preventDefault();
+=======
+>>>>>>> 47ef49d24fe732cd4d0cd4f3815c2e7174c46b4d
             switch (e.key) {
                 case 'ArrowLeft': this.controller.movePiece(-1); break;
                 case 'ArrowRight': this.controller.movePiece(1); break;

@@ -352,6 +352,7 @@ export class GameController {
     rotateInventory() {
         const inv = this.player1Board.inventory;
         if (inv.length > 1 && !this.player1Board.usedItemAnimation && !this.player1Board.inventorySlideAnimation) {
+<<<<<<< HEAD
             // 即時の視覚反映（ローカル回転）
             const last = inv.pop();
             inv.unshift(last);
@@ -363,6 +364,12 @@ export class GameController {
             } else {
                 this.socket.emit('rotateInventory');
             }
+=======
+            const last = inv.pop();
+            inv.unshift(last);
+            // 簡易UIスライド演出
+            this.player1Board.inventorySlideAnimation = { startTime: performance.now(), duration: 300 };
+>>>>>>> 47ef49d24fe732cd4d0cd4f3815c2e7174c46b4d
         }
     }
 

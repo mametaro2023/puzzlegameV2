@@ -3,8 +3,11 @@
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
+<<<<<<< HEAD
 import path from 'path';
 import { fileURLToPath } from 'url';
+=======
+>>>>>>> 47ef49d24fe732cd4d0cd4f3815c2e7174c46b4d
 
 const app = express();
 const server = http.createServer(app);
@@ -13,6 +16,7 @@ const io = new Server(server, {
 });
 
 const PORT = 3000;
+<<<<<<< HEAD
 // 静的配信（同一オリジンで index.html を提供）
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +24,8 @@ app.use(express.static(__dirname));
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
+=======
+>>>>>>> 47ef49d24fe732cd4d0cd4f3815c2e7174c46b4d
 // rooms: { [roomName]: { members: string[], host: string, inGame: boolean, playerStates: { [socketId]: PlayerState } } }
 const rooms = {};
 
@@ -120,11 +126,17 @@ io.on('connection', (socket) => {
 
     // ゲージ加算
     const add = blocks * combo * GAUGE_COMBO_MULTIPLIER;
+<<<<<<< HEAD
     const oldGauge = self.gauge;
     let newGauge = oldGauge + add;
     let overflow = 0;
     let attack = false;
     if (newGauge >= 100) { attack = true; overflow = newGauge % 100; newGauge = overflow; }
+=======
+    let newGauge = self.gauge + add;
+    let overflow = 0;
+    if (newGauge >= 100) { overflow = newGauge % 100; newGauge = overflow; }
+>>>>>>> 47ef49d24fe732cd4d0cd4f3815c2e7174c46b4d
     self.gauge = newGauge; self.version++;
 
     // アイテム抽選
@@ -134,8 +146,13 @@ io.on('connection', (socket) => {
     // 自分へ最新state
     io.to(socket.id).emit('playerState', { inventory: self.inventory, gauge: self.gauge, version: self.version });
 
+<<<<<<< HEAD
     // ゲージMAX攻撃（しきい値到達で発動）
     if (attack) {
+=======
+    // ゲージMAX攻撃
+    if (overflow !== 0 || add >= 100) {
+>>>>>>> 47ef49d24fe732cd4d0cd4f3815c2e7174c46b4d
       // 射手にビーム演出、相手に攻撃
       io.to(socket.id).emit('beamFire');
       socket.broadcast.to(roomName).emit('receiveAttack');

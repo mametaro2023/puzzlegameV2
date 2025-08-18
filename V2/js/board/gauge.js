@@ -11,7 +11,12 @@ export function startGaugeAnimation(animData) {
 }
 
 export function setGauge(gaugeToAdd) {
+<<<<<<< HEAD
     // 絶対値指定はアニメ中でも優先して反映（現在表示値から補間し直す）
+=======
+    if (this.gaugeAnimation) return;
+
+>>>>>>> 47ef49d24fe732cd4d0cd4f3815c2e7174c46b4d
     if (typeof gaugeToAdd === 'object' && gaugeToAdd.absolute !== undefined) {
         this.gauge = gaugeToAdd.absolute;
         this.startGaugeAnimation({
@@ -22,9 +27,12 @@ export function setGauge(gaugeToAdd) {
         return;
     }
 
+<<<<<<< HEAD
     // 加算要求は、進行中アニメがある場合はスキップ（過度な連続補間を避ける）
     if (this.gaugeAnimation) return;
 
+=======
+>>>>>>> 47ef49d24fe732cd4d0cd4f3815c2e7174c46b4d
     const oldValue = this.gauge;
     const newValue = oldValue + gaugeToAdd;
 
