@@ -352,10 +352,11 @@ export class GameController {
     rotateInventory() {
         const inv = this.player1Board.inventory;
         if (inv.length > 1 && !this.player1Board.usedItemAnimation && !this.player1Board.inventorySlideAnimation) {
-            const last = inv.pop();
-            inv.unshift(last);
-            // 簡易UIスライド演出
+            // 見た目のみのスライド演出（在庫の回転自体はサーバ権威で行う）
             this.player1Board.inventorySlideAnimation = { startTime: performance.now(), duration: 300 };
+            if (this.socket && this.socket.connected) {
+                this.socket.emit('rotateInventory');
+            }
         }
     }
 
@@ -364,14 +365,13 @@ export class GameController {
             return;
         }
         const itemToUse = this.player1Board.inventory[0];
-        this.player1Board.triggerItemUseAnimation();
+        // 視覚的な使用アニメのみ実行（在庫の消費・効果適用はサーバ権威）
+        const now = performance.now();
+        this.player1Board.usedItemAnimation = { item: itemToUse, startTime: now, duration: 300 };
+        this.player1Board.inventorySlideAnimation = { startTime: now, duration: 500 };
 
-        if (target === 'self') {
-            console.log(`Using item on self: ${itemToUse}`);
-            this.player1Board.applyItemEffect(itemToUse);
-        } else {
-            console.log(`Sending item to opponent: ${itemToUse}`);
-            this.socket.emit('sendItem', { itemName: itemToUse });
+        if (this.socket && this.socket.connected) {
+            this.socket.emit('useItem', { target });
         }
     }
 }
