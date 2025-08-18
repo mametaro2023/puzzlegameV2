@@ -91,13 +91,11 @@ canvas {
 }
 
 /* 画面幅が769px以上のデバイスではタッチ操作ボタンを非表示にする */
-@media screen and (min-width: 769px) {
-  #controls-overlay { display: none; }
-}
+/* デバイスのポインタ特性のみで判定 */
 @media (pointer: fine) {
   #controls-overlay { display: none; }
 }
-@media (pointer: coarse) and (max-width: 768px) {
+@media (pointer: coarse) {
   #controls-overlay { display: flex; }
 }
 

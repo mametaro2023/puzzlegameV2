@@ -30,14 +30,20 @@
     <div id="room-screen" class="hidden card card--elevated">
         <h2>部屋の名前を入力</h2>
         <input type="text" id="room-input" placeholder="例: room123" maxlength="15">
-        <button id="create-button" class="btn btn-primary">作成</button>
+        <div style="display:flex; gap:10px; justify-content:center;">
+          <button id="create-button" class="btn btn-primary">作成</button>
+          <button id="back-to-title-from-create" class="btn btn-ghost">戻る</button>
+        </div>
     </div>
 
     <!-- 部屋一覧から入室 -->
     <div id="room-list-screen" class="hidden card card--elevated">
         <h2>部屋を選択</h2>
         <div id="room-list" class="room-list"></div>
-        <button id="refresh-rooms" class="btn btn-ghost">更新</button>
+        <div style="display:flex; gap:10px; justify-content:center; margin-top:8px;">
+          <button id="refresh-rooms" class="btn btn-ghost">更新</button>
+          <button id="back-to-title-from-list" class="btn btn-ghost">戻る</button>
+        </div>
     </div>
 </div>
 

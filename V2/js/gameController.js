@@ -31,6 +31,8 @@ export class GameController {
         this.refreshRoomsButton = document.getElementById('refresh-rooms');
         this.roomList = document.getElementById('room-list');
         this.roomInput = document.getElementById('room-input');
+        this.backFromCreate = document.getElementById('back-to-title-from-create');
+        this.backFromList = document.getElementById('back-to-title-from-list');
         this.statusText = document.getElementById('status-text');
         this.statusOverlay = document.getElementById('status-overlay');
         this.preGameControls = document.getElementById('pre-game-controls');
@@ -99,6 +101,18 @@ export class GameController {
             } else {
                 this.socket.emit('getRooms');
             }
+        });
+
+        this.backFromCreate.addEventListener('click', () => {
+            this.roomScreen.classList.add('hidden');
+            this.titleScreen.classList.remove('hidden');
+        });
+
+        this.backFromList.addEventListener('click', () => {
+            const listScreen = document.getElementById('room-list-screen');
+            listScreen.classList.add('hidden');
+            this.titleScreen.classList.remove('hidden');
+            if (this._roomsPolling) { clearInterval(this._roomsPolling); this._roomsPolling = null; }
         });
 
         this.btnStart.addEventListener('click', () => {
