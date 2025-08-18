@@ -31,6 +31,8 @@ export class GameController {
         this.refreshRoomsButton = document.getElementById('refresh-rooms');
         this.roomList = document.getElementById('room-list');
         this.roomInput = document.getElementById('room-input');
+        this.backFromCreate = document.getElementById('back-to-title-from-create');
+        this.backFromList = document.getElementById('back-to-title-from-list');
         this.statusText = document.getElementById('status-text');
         this.statusOverlay = document.getElementById('status-overlay');
         this.preGameControls = document.getElementById('pre-game-controls');
@@ -43,10 +45,12 @@ export class GameController {
         // イベントリスナーとコールバックを設定
         this.setupLobbyEvents();
         this.setupSocketEvents();
-        this.player1Board.onGaugeMax(() => {
-            this.socket.emit('gaugeAttack');
-        });
+        // 権威化: ゲージMAXの送信は廃止（サーバが判定）
         this.player1Board.onGameOver(this.gameOver.bind(this));
+        // 消去報告（ブロック数とコンボ）
+        this.player1Board.onClear(({ blocks, combo }) => {
+            if (this.socket.connected) this.socket.emit('reportClear', { blocks, combo });
+        });
 
         // 初回の背景描画
         this.renderer.draw(this.player1Board, this.player2Board);
@@ -99,6 +103,18 @@ export class GameController {
             }
         });
 
+        this.backFromCreate.addEventListener('click', () => {
+            this.roomScreen.classList.add('hidden');
+            this.titleScreen.classList.remove('hidden');
+        });
+
+        this.backFromList.addEventListener('click', () => {
+            const listScreen = document.getElementById('room-list-screen');
+            listScreen.classList.add('hidden');
+            this.titleScreen.classList.remove('hidden');
+            if (this._roomsPolling) { clearInterval(this._roomsPolling); this._roomsPolling = null; }
+        });
+
         this.btnStart.addEventListener('click', () => {
             this.socket.emit('hostStartGame');
         });
@@ -148,6 +164,10 @@ export class GameController {
             this.player2Board.init();
         });
 
+        this.socket.on('applyItemSelf', (data) => {
+            this.player1Board.applyItemEffect(data.itemName);
+        });
+
         this.socket.on('receiveItem', (data) => {
             this.player1Board.applyItemEffect(data.itemName);
         });
@@ -155,7 +175,23 @@ export class GameController {
         this.socket.on('receiveAttack', () => {
             this.player1Board.riseGrid(1);
             this.player1Board.triggerAttackEffect();
+        });
+
+        // 権威: アイテム/ゲージの状態同期
+        this.socket.on('playerState', (state) => {
+            // 在庫は置換（表示はスライド演出で自然に）
+            this.player1Board.inventory = [...state.inventory];
+            // ゲージはTweenで補間
+            this.player1Board.setGauge({ absolute: state.gauge });
         });        
+
+        // 自分のビーム発射演出
+        this.socket.on('beamFire', () => {
+            // シンプルな演出: 盤面右方向へ細い光線
+            this.player1Board.attackEffect = { startTime: performance.now(), duration: 350 };
+            // 追加で画面揺れを少し
+            this.player1Board.triggerScreenShake(6, 200, { dirX: 1.0, dirY: 0.3 });
+        });
 
         this.socket.on('roomsList', (rooms) => {
             this.roomList.innerHTML = '';
@@ -287,8 +323,8 @@ export class GameController {
                 lockGrid: JSON.parse(JSON.stringify(this.player1Board.lockGrid)),
                 cur: this.player1Board.cur ? JSON.parse(JSON.stringify(this.player1Board.cur)) : null,
                 score: this.player1Board.score | 0,
-            };
-            this.socket.emit('boardUpdate', boardData);
+             };
+             this.socket.emit('boardUpdate', boardData);
         }
 
         // カウントダウン描画状態をRendererへ渡す
@@ -316,10 +352,24 @@ export class GameController {
     rotateInventory() {
         const inv = this.player1Board.inventory;
         if (inv.length > 1 && !this.player1Board.usedItemAnimation && !this.player1Board.inventorySlideAnimation) {
+<<<<<<< HEAD
+            // 即時の視覚反映（ローカル回転）
+            const last = inv.pop();
+            inv.unshift(last);
+            this.player1Board.inventorySlideAnimation = { startTime: performance.now(), duration: 300 };
+            // サーバにも通知（権威側でも同じ回転が行われ、直後のplayerStateで整合）
+            if (!this.socket.connected) {
+                this.socket.connect();
+                this.socket.once('connect', () => this.socket.emit('rotateInventory'));
+            } else {
+                this.socket.emit('rotateInventory');
+            }
+=======
             const last = inv.pop();
             inv.unshift(last);
             // 簡易UIスライド演出
             this.player1Board.inventorySlideAnimation = { startTime: performance.now(), duration: 300 };
+>>>>>>> 47ef49d24fe732cd4d0cd4f3815c2e7174c46b4d
         }
     }
 
@@ -328,14 +378,16 @@ export class GameController {
             return;
         }
         const itemToUse = this.player1Board.inventory[0];
-        this.player1Board.triggerItemUseAnimation();
+        // 視覚的な使用アニメのみ実行（在庫の消費・効果適用はサーバ権威）
+        const now = performance.now();
+        this.player1Board.usedItemAnimation = { item: itemToUse, startTime: now, duration: 300 };
+        this.player1Board.inventorySlideAnimation = { startTime: now, duration: 500 };
 
-        if (target === 'self') {
-            console.log(`Using item on self: ${itemToUse}`);
-            this.player1Board.applyItemEffect(itemToUse);
+        if (!this.socket.connected) {
+            this.socket.connect();
+            this.socket.once('connect', () => this.socket.emit('useItem', { target }));
         } else {
-            console.log(`Sending item to opponent: ${itemToUse}`);
-            this.socket.emit('sendItem', { itemName: itemToUse });
+            this.socket.emit('useItem', { target });
         }
     }
 }

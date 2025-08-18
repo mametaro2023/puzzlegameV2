@@ -3,8 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>ブロック積みゲーム（モジュール版）</title>
+  <title>パズルゲーム</title>
   <link rel="stylesheet" href="css/style.css">
+<<<<<<< HEAD
+  <link rel="icon" href="data:,">
+=======
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>パズルゲーム</title>
@@ -12,10 +15,11 @@
     
     <!-- ▼▼▼ この行を追加 ▼▼▼ -->
     <link rel="icon" href="data:,">
+>>>>>>> 47ef49d24fe732cd4d0cd4f3815c2e7174c46b4d
 </head>
 <body>
 <div id="game-container">
-    <canvas id="game" width="1600" height="1000"></canvas>
+    <canvas id="game" width="1600" height="900"></canvas>
 </div>
 
 <div id="lobby-overlay">
@@ -30,14 +34,20 @@
     <div id="room-screen" class="hidden card card--elevated">
         <h2>部屋の名前を入力</h2>
         <input type="text" id="room-input" placeholder="例: room123" maxlength="15">
-        <button id="create-button" class="btn btn-primary">作成</button>
+        <div style="display:flex; gap:10px; justify-content:center;">
+          <button id="create-button" class="btn btn-primary">作成</button>
+          <button id="back-to-title-from-create" class="btn btn-ghost">戻る</button>
+        </div>
     </div>
 
     <!-- 部屋一覧から入室 -->
     <div id="room-list-screen" class="hidden card card--elevated">
         <h2>部屋を選択</h2>
         <div id="room-list" class="room-list"></div>
-        <button id="refresh-rooms" class="btn btn-ghost">更新</button>
+        <div style="display:flex; gap:10px; justify-content:center; margin-top:8px;">
+          <button id="refresh-rooms" class="btn btn-ghost">更新</button>
+          <button id="back-to-title-from-list" class="btn btn-ghost">戻る</button>
+        </div>
     </div>
 </div>
 
@@ -46,10 +56,11 @@
         <div id="btn-left" class="control-btn">◀</div>
         <div id="btn-right" class="control-btn">▶</div>
         <div id="btn-rotate-up" class="control-btn">↶</div>
-        <div id="btn-rotate-down" class="control-btn">↷</div>
+        <div id="btn-soft-drop" class="control-btn">▼</div>
         <div id="btn-hard-drop" class="control-btn">DROP</div>
         <div id="btn-use-self" class="control-btn">X</div>
         <div id="btn-use-opponent" class="control-btn">C</div>
+        <div id="btn-rotate-inv" class="control-btn">V</div>
     </div>
 </div>
 

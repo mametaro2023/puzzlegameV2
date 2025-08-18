@@ -44,7 +44,11 @@ canvas {
 	box-sizing: border-box;
 	display: grid;
 	grid-template-areas:
+<<<<<<< HEAD
 		"rotate-up   .        .          hard-drop"
+=======
+		"rotate-up   use-item .          hard-drop"
+>>>>>>> 47ef49d24fe732cd4d0cd4f3815c2e7174c46b4d
 		"left        right    use-self   use-opponent"
 		"rotate-down .        .          .";
 	grid-template-columns: 1fr 1fr 1fr 1fr;
@@ -74,8 +78,9 @@ canvas {
 #btn-left { grid-area: left; }
 #btn-right { grid-area: right; }
 #btn-rotate-up { grid-area: rotate-up; }
-#btn-rotate-down { grid-area: rotate-down; }
+#btn-soft-drop { grid-area: rotate-down; }
 #btn-hard-drop { grid-area: hard-drop; font-size: 16px; }
+#btn-rotate-inv { grid-area: use-item; }
 /*#btn-use-item { grid-area: use-item; }
 */
 
@@ -91,13 +96,11 @@ canvas {
 }
 
 /* 画面幅が769px以上のデバイスではタッチ操作ボタンを非表示にする */
-@media screen and (min-width: 769px) {
-  #controls-overlay { display: none; }
-}
+/* デバイスのポインタ特性のみで判定 */
 @media (pointer: fine) {
   #controls-overlay { display: none; }
 }
-@media (pointer: coarse) and (max-width: 768px) {
+@media (pointer: coarse) {
   #controls-overlay { display: flex; }
 }
 
