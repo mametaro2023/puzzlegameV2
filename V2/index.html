@@ -12,7 +12,6 @@
     
     <!-- ▼▼▼ この行を追加 ▼▼▼ -->
     <link rel="icon" href="data:,">
-    <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
 <div id="game-container">
@@ -20,17 +19,31 @@
 </div>
 
 <div id="lobby-overlay">
-    <!-- タイトルとプレイボタンの画面 -->
-    <div id="title-screen">
-        <h1>パズルゲーム</h1>
-        <button id="play-button">プレイ</button>
+    <!-- タイトルとロビーの選択画面 -->
+    <div id="title-screen" class="card card--elevated">
+        <h1 class="app-title">パズルゲーム</h1>
+        <button id="create-room-button" class="btn btn-primary">部屋を作る</button>
+        <button id="enter-room-button" class="btn btn-secondary">部屋に入る</button>
     </div>
 
-    <!-- 部屋の名前を入力する画面 -->
-    <div id="room-screen" class="hidden">
+    <!-- 部屋を作る（部屋名入力） -->
+    <div id="room-screen" class="hidden card card--elevated">
         <h2>部屋の名前を入力</h2>
         <input type="text" id="room-input" placeholder="例: room123" maxlength="15">
-        <button id="join-button">部屋に入る</button>
+        <div style="display:flex; gap:10px; justify-content:center;">
+          <button id="create-button" class="btn btn-primary">作成</button>
+          <button id="back-to-title-from-create" class="btn btn-ghost">戻る</button>
+        </div>
+    </div>
+
+    <!-- 部屋一覧から入室 -->
+    <div id="room-list-screen" class="hidden card card--elevated">
+        <h2>部屋を選択</h2>
+        <div id="room-list" class="room-list"></div>
+        <div style="display:flex; gap:10px; justify-content:center; margin-top:8px;">
+          <button id="refresh-rooms" class="btn btn-ghost">更新</button>
+          <button id="back-to-title-from-list" class="btn btn-ghost">戻る</button>
+        </div>
     </div>
 </div>
 
@@ -39,15 +52,25 @@
         <div id="btn-left" class="control-btn">◀</div>
         <div id="btn-right" class="control-btn">▶</div>
         <div id="btn-rotate-up" class="control-btn">↶</div>
-        <div id="btn-rotate-down" class="control-btn">↷</div>
+        <div id="btn-soft-drop" class="control-btn">▼</div>
         <div id="btn-hard-drop" class="control-btn">DROP</div>
         <div id="btn-use-self" class="control-btn">X</div>
         <div id="btn-use-opponent" class="control-btn">C</div>
+        <div id="btn-rotate-inv" class="control-btn">V</div>
     </div>
 </div>
 
-<div id="status-overlay" style="position: absolute; top: 10px; left: 10px; color: white; font-size: 24px; font-family: sans-serif; display: none;">
-    <p id="status-text">マッチング相手を探しています...</p>
+<div id="status-overlay" class="status-overlay">
+    <p id="status-text">準備中...</p>
+    <div id="pre-game-controls" class="pre-game-controls">
+        <button id="btn-start" class="btn btn-primary hidden">ゲーム開始</button>
+        <button id="btn-leave" class="btn btn-ghost">退出</button>
+    </div>
+</div>
+
+<div id="result-overlay" class="result-overlay">
+    <p id="result-text"></p>
+    <button id="btn-close-result" class="btn btn-primary">OK</button>
 </div>
 
 <script type="module" src="js/main.js"></script>
