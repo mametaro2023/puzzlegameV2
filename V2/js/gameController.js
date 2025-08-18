@@ -352,10 +352,17 @@ export class GameController {
     rotateInventory() {
         const inv = this.player1Board.inventory;
         if (inv.length > 1 && !this.player1Board.usedItemAnimation && !this.player1Board.inventorySlideAnimation) {
+            // 即時の視覚反映（ローカル回転）
             const last = inv.pop();
             inv.unshift(last);
-            // 簡易UIスライド演出
             this.player1Board.inventorySlideAnimation = { startTime: performance.now(), duration: 300 };
+            // サーバにも通知（権威側でも同じ回転が行われ、直後のplayerStateで整合）
+            if (!this.socket.connected) {
+                this.socket.connect();
+                this.socket.once('connect', () => this.socket.emit('rotateInventory'));
+            } else {
+                this.socket.emit('rotateInventory');
+            }
         }
     }
 
@@ -364,14 +371,16 @@ export class GameController {
             return;
         }
         const itemToUse = this.player1Board.inventory[0];
-        this.player1Board.triggerItemUseAnimation();
+        // 視覚的な使用アニメのみ実行（在庫の消費・効果適用はサーバ権威）
+        const now = performance.now();
+        this.player1Board.usedItemAnimation = { item: itemToUse, startTime: now, duration: 300 };
+        this.player1Board.inventorySlideAnimation = { startTime: now, duration: 500 };
 
-        if (target === 'self') {
-            console.log(`Using item on self: ${itemToUse}`);
-            this.player1Board.applyItemEffect(itemToUse);
+        if (!this.socket.connected) {
+            this.socket.connect();
+            this.socket.once('connect', () => this.socket.emit('useItem', { target }));
         } else {
-            console.log(`Sending item to opponent: ${itemToUse}`);
-            this.socket.emit('sendItem', { itemName: itemToUse });
+            this.socket.emit('useItem', { target });
         }
     }
 }
